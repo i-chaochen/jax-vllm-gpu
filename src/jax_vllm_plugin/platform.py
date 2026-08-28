@@ -34,6 +34,10 @@ FORCE_ENV_VAR = "VLLM_JAX_PLATFORM"
 # initialise a backend as a side effect of mere platform detection.
 _AMD_KFD_DEVICE = "/dev/kfd"
 
+# Matches MaxText's paged_page_size default and the page sizes the aiter paged
+# kernels accept (16 or 32), so vLLM's block_size and our pool agree by default.
+DEFAULT_TOKENS_PER_PAGE = 16
+
 
 def _explicit_override() -> bool | None:
     value = os.environ.get(FORCE_ENV_VAR)
@@ -68,22 +72,30 @@ def register() -> str | None:
 
 
 class JaxPlatform(Platform):
-    """AMD GPU platform whose compute is JAX rather than PyTorch."""
+    """AMD GPU platform whose compute is JAX rather than PyTorch.
+
+    JAX owns the accelerators. torch is present only because vLLM requires it,
+    and is deliberately a CPU-only build: a ROCm torch would give the process a
+    second HIP runtime alongside JAX's, which aborts during RCCL clique setup.
+    """
 
     _enum = PlatformEnum.OOT
     device_name: str = "rocm-jax"
 
-    # Torch's own name for an AMD GPU is "cuda" -- ROCm builds reuse the CUDA
-    # device type rather than adding one. Anything in vLLM that reaches for
-    # torch.device(device_type) therefore needs "cuda" here, even though this
-    # platform does no torch compute. Revisit if a torch-free image makes that
-    # construction fail rather than merely unused.
-    device_type: str = "cuda"
+    # "cpu" because torch here is a CPU-only build, so torch.device(device_type)
+    # must remain constructible; a ROCm torch is what we are avoiding, and an
+    # invented name would raise. This does not put vLLM on its CPU code paths:
+    # is_cpu() tests _enum, which is OOT.
+    device_type: str = "cpu"
 
     # XLA, as for the TPU platform: both defer compilation to JAX.
     dispatch_key: str = "XLA"
     ray_device_key: str = "GPU"
     device_control_env_var: str = "HIP_VISIBLE_DEVICES"
+
+    # gloo, not nccl. The torch process group exists only to satisfy vLLM's
+    # parallel_state at world size 1; every real collective is JAX's.
+    dist_backend: str = "gloo"
 
     # torch.compile has nothing to compile on this platform.
     simple_compile_backend: str = "eager"
@@ -93,7 +105,18 @@ class JaxPlatform(Platform):
     @classmethod
     def check_and_update_config(cls, vllm_config: "VllmConfig") -> None:
         """Called very early in vLLM startup; this is where worker_cls is set."""
-        vllm_config.parallel_config.worker_cls = "jax_vllm_plugin.worker.JaxWorker"
+        parallel_config = vllm_config.parallel_config
+        parallel_config.worker_cls = "jax_vllm_plugin.worker.JaxWorker"
+
+        # One vLLM worker drives every GPU through a JAX mesh, so vLLM must not
+        # fan out into a process per device. tensor_parallel_size is consumed as
+        # a mesh axis by the runner rather than as a process count.
+        if parallel_config.pipeline_parallel_size == 1:
+            parallel_config.distributed_executor_backend = "uni"
+
+        cache_config = vllm_config.cache_config
+        if cache_config is not None and not cache_config.user_specified_block_size:
+            cache_config.block_size = DEFAULT_TOKENS_PER_PAGE
 
     @classmethod
     def get_attn_backend_cls(
