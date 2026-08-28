@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jax-vllm-plugin"
+version = "0.0.1.dev0"
+description = "vLLM platform plugin and KV connector for JAX on AMD GPUs"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+classifiers = [
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# vllm, jax and jax-aiter are deliberately absent from dependencies. All three
+# carry artifacts pinned to a ROCm version and gfx target, so resolving them
+# here would let pip install a mismatched (typically CUDA) build that fails at
+# load. The runtime image supplies a matched set; see README.
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+# The left-hand names are what VLLM_PLUGINS allowlists and what appears in
+# vLLM's "Platform plugin <name> is activated" log line.
+[project.entry-points."vllm.platform_plugins"]
+jax_vllm_plugin = "jax_vllm_plugin.platform:register"
+
+[project.entry-points."vllm.general_plugins"]
+jax_vllm_plugin_kv_connector = "jax_vllm_plugin.connector:register"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
