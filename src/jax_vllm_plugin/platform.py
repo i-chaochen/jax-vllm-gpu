@@ -38,6 +38,11 @@ _AMD_KFD_DEVICE = "/dev/kfd"
 # kernels accept (16 or 32), so vLLM's block_size and our pool agree by default.
 DEFAULT_TOKENS_PER_PAGE = 16
 
+# MaxText's attention mode for the AMD paged path. Its `forward_serve_gpu_paged`
+# takes the pool and metadata as arguments, mirroring the vLLM RPA branch, which
+# is exactly the externally-owned-pool arrangement this platform needs.
+PAGED_ATTENTION_MODE = "gpu_paged"
+
 
 def _explicit_override() -> bool | None:
     value = os.environ.get(FORCE_ENV_VAR)
@@ -117,6 +122,28 @@ class JaxPlatform(Platform):
         cache_config = vllm_config.cache_config
         if cache_config is not None and not cache_config.user_specified_block_size:
             cache_config.block_size = DEFAULT_TOKENS_PER_PAGE
+
+        cls._select_paged_attention(vllm_config)
+
+    @staticmethod
+    def _select_paged_attention(vllm_config: "VllmConfig") -> None:
+        """Point MaxText at the GPU paged attention path.
+
+        MaxText's `inference/vllm.yml` defaults to `vllm_rpa`, which is TPU
+        Pallas ragged paged attention. Its adapter merges
+        `additional_config["maxtext_config"]` into `pyconfig.initialize`, so the
+        mode can be selected here rather than by editing a config MaxText shares
+        with the TPU plugin.
+
+        An explicit setting is left alone: a caller asking for a different
+        attention deliberately should not be overridden silently.
+        """
+        additional = getattr(vllm_config, "additional_config", None)
+        if additional is None:
+            return
+        maxtext_config = additional.setdefault("maxtext_config", {})
+        maxtext_config.setdefault("attention", PAGED_ATTENTION_MODE)
+        maxtext_config.setdefault("paged_page_size", vllm_config.cache_config.block_size)
 
     @classmethod
     def get_attn_backend_cls(
