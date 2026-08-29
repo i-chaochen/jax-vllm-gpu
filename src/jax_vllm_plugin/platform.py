@@ -85,13 +85,21 @@ class JaxPlatform(Platform):
     """
 
     _enum = PlatformEnum.OOT
-    device_name: str = "rocm-jax"
 
-    # "cpu" because torch here is a CPU-only build, so torch.device(device_type)
-    # must remain constructible; a ROCm torch is what we are avoiding, and an
-    # invented name would raise. This does not put vLLM on its CPU code paths:
-    # is_cpu() tests _enum, which is OOT.
+    # Both of these are "cpu" because torch here is a CPU-only build, so both
+    # `torch.device(device_type)` and -- for an out-of-tree platform --
+    # `torch.device(f"{device_name}:{index}")` in `GroupCoordinator` must stay
+    # constructible. A descriptive name like "rocm-jax" reads better in logs and
+    # raises `Invalid device string` the moment a process group is created.
+    #
+    # This does not put vLLM on its CPU code paths: `is_cpu()` tests `_enum`,
+    # which is OOT. Nor does it describe where the model runs -- JAX owns the
+    # GPUs and torch is never told about them.
+    device_name: str = "cpu"
     device_type: str = "cpu"
+
+    # For humans, since device_name can no longer say it.
+    display_name: str = "rocm-jax"
 
     # XLA, as for the TPU platform: both defer compilation to JAX.
     dispatch_key: str = "XLA"
@@ -141,9 +149,29 @@ class JaxPlatform(Platform):
         additional = getattr(vllm_config, "additional_config", None)
         if additional is None:
             return
+        block_size = vllm_config.cache_config.block_size
         maxtext_config = additional.setdefault("maxtext_config", {})
         maxtext_config.setdefault("attention", PAGED_ATTENTION_MODE)
-        maxtext_config.setdefault("paged_page_size", vllm_config.cache_config.block_size)
+        maxtext_config.setdefault("paged_page_size", block_size)
+
+        if maxtext_config["attention"] != PAGED_ATTENTION_MODE:
+            return
+
+        # MaxText's own context bound. Left at its default it is shorter than
+        # what vLLM will admit, and `gpu_paged` validation compares the two, so
+        # a long request would be rejected by the model rather than by the
+        # scheduler that is supposed to be bounding it.
+        max_model_len = int(vllm_config.model_config.max_model_len)
+        maxtext_config.setdefault("max_target_length", max_model_len)
+
+        # Inert here, and required to be set. `paged_num_blocks` sizes the pool
+        # MaxText would allocate for itself, but under this platform vLLM owns
+        # allocation and `attentions.py` skips `init_kv_caches` entirely -- so
+        # nothing is allocated from this number. It still has to clear
+        # validation, which insists a single longest request fits.
+        maxtext_config.setdefault(
+            "paged_num_blocks", -(-max_model_len // block_size)
+        )
 
     @classmethod
     def get_attn_backend_cls(

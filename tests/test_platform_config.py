@@ -22,9 +22,11 @@ def make_config(**kwargs):
         user_specified_block_size=kwargs.pop("user_specified_block_size", False),
         block_size=kwargs.pop("block_size", 0),
     )
+    model = SimpleNamespace(max_model_len=kwargs.pop("max_model_len", 2048))
     return SimpleNamespace(
         parallel_config=parallel,
         cache_config=cache,
+        model_config=model,
         additional_config=kwargs.pop("additional_config", {}),
     )
 
@@ -84,11 +86,40 @@ def test_the_page_size_handed_to_maxtext_matches_vllms_block_size():
     assert config.additional_config["maxtext_config"]["paged_page_size"] == 32
 
 
+def test_maxtexts_context_bound_covers_what_vllm_will_admit():
+    """MaxText validates a request against its own max_target_length. Left at the
+    default that is shorter than vLLM's limit, so the model would reject a long
+    request the scheduler had already accepted."""
+    config = make_config(max_model_len=32768)
+    JaxPlatform.check_and_update_config(config)
+
+    assert config.additional_config["maxtext_config"]["max_target_length"] == 32768
+
+
+def test_maxtext_gets_a_block_count_large_enough_for_one_full_request():
+    """The number is inert -- vLLM owns allocation and MaxText skips
+    init_kv_caches in this mode -- but gpu_paged validation still rejects a
+    figure too small to hold a single longest request."""
+    config = make_config(max_model_len=2048, user_specified_block_size=True, block_size=32)
+    JaxPlatform.check_and_update_config(config)
+
+    assert config.additional_config["maxtext_config"]["paged_num_blocks"] == 64
+
+
 def test_an_explicit_attention_choice_is_not_overridden():
     config = make_config(additional_config={"maxtext_config": {"attention": "dot_product"}})
     JaxPlatform.check_and_update_config(config)
 
     assert config.additional_config["maxtext_config"]["attention"] == "dot_product"
+
+
+def test_paged_settings_are_not_forced_on_a_different_attention():
+    """A caller who chose another attention deliberately should not find paged
+    pool geometry injected alongside it."""
+    config = make_config(additional_config={"maxtext_config": {"attention": "dot_product"}})
+    JaxPlatform.check_and_update_config(config)
+
+    assert "paged_num_blocks" not in config.additional_config["maxtext_config"]
 
 
 def test_a_config_without_additional_config_does_not_crash():
