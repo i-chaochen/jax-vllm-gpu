@@ -119,6 +119,11 @@ class JaxPlatform(Platform):
     def check_and_update_config(cls, vllm_config: "VllmConfig") -> None:
         """Called very early in vLLM startup; this is where worker_cls is set."""
         parallel_config = vllm_config.parallel_config
+        if parallel_config.pipeline_parallel_size != 1:
+            raise ValueError(
+                "JAX owns model parallelism inside one worker; vLLM pipeline "
+                "parallelism is unsupported"
+            )
         parallel_config.worker_cls = "jax_vllm_plugin.worker.JaxWorker"
 
         # The runner samples inside execute_model and returns a complete
@@ -132,14 +137,51 @@ class JaxPlatform(Platform):
         # One vLLM worker drives every GPU through a JAX mesh, so vLLM must not
         # fan out into a process per device. tensor_parallel_size is consumed as
         # a mesh axis by the runner rather than as a process count.
-        if parallel_config.pipeline_parallel_size == 1:
-            parallel_config.distributed_executor_backend = "uni"
+        parallel_config.distributed_executor_backend = "uni"
 
         cache_config = vllm_config.cache_config
         if cache_config is not None and not cache_config.user_specified_block_size:
             cache_config.block_size = DEFAULT_TOKENS_PER_PAGE
+        if cache_config is not None and cache_config.block_size not in (16, 32):
+            raise ValueError(
+                "jax-aiter paged attention supports vLLM block sizes 16 and 32, "
+                f"got {cache_config.block_size}"
+            )
 
         cls._select_paged_attention(vllm_config)
+        cls._validate_supported_config(vllm_config)
+
+    @staticmethod
+    def _validate_supported_config(vllm_config: "VllmConfig") -> None:
+        unsupported = []
+        if getattr(vllm_config, "speculative_config", None) is not None:
+            unsupported.append("speculative decoding")
+        if getattr(vllm_config, "lora_config", None) is not None:
+            unsupported.append("LoRA")
+        if getattr(vllm_config.model_config, "quantization", None) is not None:
+            unsupported.append("quantization")
+
+        cache_config = getattr(vllm_config, "cache_config", None)
+        cache_dtype = getattr(cache_config, "cache_dtype", "auto")
+        if cache_dtype != "auto":
+            unsupported.append(f"KV cache dtype {cache_dtype!r}")
+        if unsupported:
+            raise ValueError(
+                "The JAX vLLM platform does not support: " + ", ".join(unsupported)
+            )
+
+        load_config = getattr(vllm_config, "load_config", None)
+        load_format = getattr(load_config, "load_format", None)
+        maxtext_config = vllm_config.additional_config["maxtext_config"]
+        if (
+            load_config is not None
+            and load_format != "dummy"
+            and not maxtext_config.get("load_parameters_path")
+        ):
+            raise ValueError(
+                "maxtext_config.load_parameters_path is required unless "
+                "vLLM load_format='dummy'; refusing to serve random weights"
+            )
 
     @staticmethod
     def _select_paged_attention(vllm_config: "VllmConfig") -> None:
@@ -151,19 +193,29 @@ class JaxPlatform(Platform):
         mode can be selected here rather than by editing a config MaxText shares
         with the TPU plugin.
 
-        An explicit setting is left alone: a caller asking for a different
-        attention deliberately should not be overridden silently.
+        An explicit incompatible setting is rejected: the model runner always
+        supplies jax-aiter's paged KV ABI, so another attention implementation
+        cannot honor the execution contract.
         """
         additional = getattr(vllm_config, "additional_config", None)
         if additional is None:
-            return
+            additional = {}
+            vllm_config.additional_config = additional
         block_size = vllm_config.cache_config.block_size
         maxtext_config = additional.setdefault("maxtext_config", {})
         maxtext_config.setdefault("attention", PAGED_ATTENTION_MODE)
         maxtext_config.setdefault("paged_page_size", block_size)
 
         if maxtext_config["attention"] != PAGED_ATTENTION_MODE:
-            return
+            raise ValueError(
+                "The JAX vLLM runner requires MaxText attention='gpu_paged', "
+                f"got {maxtext_config['attention']!r}"
+            )
+        if int(maxtext_config["paged_page_size"]) != block_size:
+            raise ValueError(
+                "MaxText paged_page_size must match vLLM block_size, got "
+                f"{maxtext_config['paged_page_size']} and {block_size}"
+            )
 
         # MaxText's own context bound. Left at its default it is shorter than
         # what vLLM will admit, and `gpu_paged` validation compares the two, so
@@ -180,6 +232,47 @@ class JaxPlatform(Platform):
         maxtext_config.setdefault(
             "paged_num_blocks", -(-max_model_len // block_size)
         )
+
+    @classmethod
+    def validate_request(cls, processed_inputs, params) -> None:
+        """Reject sampling semantics the JAX sampler would otherwise ignore."""
+        del processed_inputs
+        from vllm.sampling_params import SamplingParams
+
+        if not isinstance(params, SamplingParams):
+            raise ValueError("The JAX vLLM platform supports generation requests only")
+
+        unsupported = []
+        nondefault = (
+            ("presence_penalty", 0.0),
+            ("frequency_penalty", 0.0),
+            ("repetition_penalty", 1.0),
+            ("min_p", 0.0),
+            ("min_tokens", 0),
+            ("seed", None),
+            ("logprobs", None),
+            ("prompt_logprobs", None),
+            ("logprob_token_ids", None),
+            ("structured_outputs", None),
+            ("logit_bias", None),
+            ("allowed_token_ids", None),
+            ("extra_args", None),
+            ("repetition_detection", None),
+            ("thinking_token_budget", None),
+        )
+        for name, default in nondefault:
+            if getattr(params, name, default) != default:
+                unsupported.append(name)
+        if getattr(params, "bad_words", None):
+            unsupported.append("bad_words")
+        if getattr(params, "_bad_words_token_ids", None):
+            unsupported.append("bad_words_token_ids")
+
+        if unsupported:
+            raise ValueError(
+                "The JAX sampler supports temperature, top_p, and top_k only; "
+                "unsupported request fields: " + ", ".join(unsupported)
+            )
 
     @classmethod
     def get_attn_backend_cls(

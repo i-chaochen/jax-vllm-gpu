@@ -7,6 +7,7 @@ import numpy as np
 
 from maxtext.inference.kv_execution.bucketing import StepShapePlanner
 
+from jax_vllm_plugin.kv_reuse import PageReuseTracker
 from jax_vllm_plugin.model_runner import (
     JaxModelRunner,
     _attention_max_seqlen_q,
@@ -27,6 +28,25 @@ def runner() -> JaxModelRunner:
         max_batched_tokens=512,
     )
     return value
+
+
+def test_runner_admission_rotates_page_owner_when_an_id_is_reused():
+    value = runner()
+    value.tracker = PageReuseTracker(num_pages=16, tokens_per_page=16)
+    value.requests = {}
+    admitted = SimpleNamespace(
+        scheduled_new_reqs=[
+            SimpleNamespace(req_id="same", prompt_token_ids=[1], sampling_params=None)
+        ]
+    )
+    value._admit(admitted)
+    first = [RequestPages("same", [3], 0, 8)]
+    value.tracker.note_written(first)
+
+    value._retire(SimpleNamespace(finished_req_ids={"same"}))
+    value._admit(admitted)
+
+    assert list(value.tracker.observe([RequestPages("same", [3], 0, 4)])) == [3]
 
 
 def test_extend_shape_pins_request_axis():

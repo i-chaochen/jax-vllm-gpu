@@ -106,6 +106,28 @@ def test_finished_requests_are_dropped():
     assert len(state) == 0
 
 
+def test_a_finished_request_id_can_be_reused_in_the_same_step():
+    state = BatchState()
+    state.apply(FakeOutput(scheduled_new_reqs=[FakeNewReq("a", ([1],), 0)]))
+
+    state.apply(
+        FakeOutput(
+            scheduled_new_reqs=[FakeNewReq("a", ([7],), 0)],
+            finished_req_ids={"a"},
+        )
+    )
+
+    assert state.get("a").block_ids == [7]
+
+
+def test_duplicate_active_request_id_is_rejected():
+    state = BatchState()
+    state.apply(FakeOutput(scheduled_new_reqs=[FakeNewReq("a", ([1],), 0)]))
+
+    with pytest.raises(ValueError, match="already active"):
+        state.apply(FakeOutput(scheduled_new_reqs=[FakeNewReq("a", ([2],), 0)]))
+
+
 def test_pages_for_step_follows_the_scheduled_token_order():
     state = BatchState()
     state.apply(

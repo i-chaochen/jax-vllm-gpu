@@ -69,7 +69,14 @@ class BatchState:
 
     def apply(self, scheduler_output: Any) -> None:
         """Fold one `SchedulerOutput` into the accumulated state."""
+        # Retire before admitting. vLLM request IDs are caller-controlled and
+        # may be reused immediately in the same scheduler output.
+        for finished in getattr(scheduler_output, "finished_req_ids", ()) or ():
+            self._requests.pop(finished, None)
+
         for new in getattr(scheduler_output, "scheduled_new_reqs", ()) or ():
+            if new.req_id in self._requests:
+                raise ValueError(f"request {new.req_id!r} is already active")
             self._requests[new.req_id] = RequestState(
                 request_id=new.req_id,
                 block_ids=_single_group(new.block_ids, new.req_id),
@@ -79,9 +86,6 @@ class BatchState:
         cached = getattr(scheduler_output, "scheduled_cached_reqs", None)
         if cached is not None:
             self._apply_cached(cached)
-
-        for finished in getattr(scheduler_output, "finished_req_ids", ()) or ():
-            self._requests.pop(finished, None)
 
     def _apply_cached(self, cached: Any) -> None:
         req_ids = list(cached.req_ids)
