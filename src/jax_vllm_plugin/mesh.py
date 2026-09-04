@@ -16,6 +16,7 @@ resolves to no mesh axis and silently replicates what should be sharded.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import Any
 
@@ -29,6 +30,19 @@ MESH_AXES = ("data", "attn_dp", "model", "expert", "attn_dp_expert")
 # what `heads`, `kv_heads` and `paged_kv_heads` all map onto, so it shards the
 # KV pool as well as the projections.
 TENSOR_AXIS = "model"
+
+
+def _call_maxtext_layout(function, config: Any, *args):
+    """Call either generation of MaxText's layout-builder API.
+
+    Chao's paged-KV branch originally inferred sharding from ``mesh`` alone.
+    The config-aware API fixes that for serving recipes whose tensor axis is
+    named ``model``. Supporting both keeps the TP=1 plugin usable while that
+    companion MaxText change is reviewed.
+    """
+    if "config" in inspect.signature(function).parameters:
+        return function(config, *args)
+    return function(*args)
 
 
 def build_mesh(tensor_parallel_size: int, devices: Any | None = None) -> Any:
@@ -71,26 +85,27 @@ def build_mesh(tensor_parallel_size: int, devices: Any | None = None) -> Any:
     return mesh
 
 
-def kv_head_shards(mesh: Any) -> int:
+def kv_head_shards(config: Any, mesh: Any) -> int:
     """How many ways the mesh splits KV heads.
 
     Delegates to MaxText so the pool and the kernels reading it cannot disagree
     about which axes are sharded, which would be wrong in a way no shape check
-    would catch.
+    would catch. `config` is MaxText's config: the axis names it resolves are
+    per-model, so the mesh alone does not determine the answer.
     """
     from maxtext.inference.kv_execution.layout_builder import kv_head_shards as maxtext_shards
 
-    return maxtext_shards(mesh)
+    return _call_maxtext_layout(maxtext_shards, config, mesh)
 
 
-def pool_replicas(mesh: Any) -> int:
+def pool_replicas(config: Any, mesh: Any) -> int:
     """Devices holding a copy of each KV-head shard."""
     from maxtext.inference.kv_execution.layout_builder import pool_replicas as maxtext_replicas
 
-    return maxtext_replicas(mesh)
+    return _call_maxtext_layout(maxtext_replicas, config, mesh)
 
 
-def assert_kv_heads_shardable(mesh: Any, num_kv_heads: int) -> None:
+def assert_kv_heads_shardable(config: Any, mesh: Any, num_kv_heads: int) -> None:
     """Refuse a mesh that cannot shard this model's KV heads evenly.
 
     Grouped-query models have few KV heads -- eight, for Llama-3.3-70B -- so a
@@ -99,7 +114,7 @@ def assert_kv_heads_shardable(mesh: Any, num_kv_heads: int) -> None:
     but multiplies the pool's footprint, so it should be a decision rather than
     a surprise discovered from an OOM.
     """
-    shards = kv_head_shards(mesh)
+    shards = kv_head_shards(config, mesh)
     if shards <= 1 or not num_kv_heads:
         return
     if shards <= num_kv_heads and num_kv_heads % shards:

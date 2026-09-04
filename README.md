@@ -94,19 +94,26 @@ pytest
 
 ## Status
 
-Early scaffold, and **nothing in it has been executed yet.** Discovery is written
-and covered by tests; execution is not. `JaxWorker` and `get_attn_backend_cls`
-raise `NotImplementedError` on purpose, so the plugin is discoverable now and
-honest about being unfinished. Note that `test_the_entry_points_are_declared_in_installed_metadata`
-will fail until `pip install -e .` has run, by design — `entry_points` only sees
-the plugin once the distribution is installed.
+The TP=1 full-engine path is operational. vLLM owns the endpoint, scheduler,
+request lifecycle, and KV block allocation; one `JaxWorker` drives the MaxText
+model and JAX-AITER paged KV kernels through a JAX mesh. The test suite covers
+platform discovery, worker configuration, page translation and reuse, shape
+selection, sampling, and runner telemetry.
 
-Two decisions are recorded in code comments rather than settled:
+Current limitations are explicit:
 
-- **`device_type = "cuda"`.** Torch reuses the CUDA device type for ROCm rather
-  than adding one, so anything in vLLM constructing `torch.device(device_type)`
-  needs `"cuda"` here even though this platform does no torch compute. Revisit if
-  a torch-free image makes that construction fail rather than merely go unused.
+- Asynchronous scheduling is disabled because sampling still occurs inside
+  `execute_model`; implementing vLLM's separate `sample_tokens` contract also
+  requires keeping sampled-token dependencies on device.
+- The MaxText model owns attention internally, so
+  `JaxPlatform.get_attn_backend_cls` is not reached by the working model path
+  and remains unsupported for models that instantiate vLLM `Attention` layers.
+- Only one uniform full-attention KV cache group is supported.
+- Shape programs compile lazily. A production image should provide a persistent
+  compilation cache or workload-appropriate warmup.
+
+One design decision remains open:
+
 - **How the connector reaches MORI.** vLLM already ships a MoRI-IO connector at
   `vllm/distributed/kv_transfer/kv_connector/v1/moriio/`, but it is thoroughly
   torch-bound (`register_kv_caches(dict[str, torch.Tensor])`, then `.data_ptr()`

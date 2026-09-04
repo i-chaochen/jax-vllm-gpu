@@ -211,13 +211,12 @@ class JaxWorker(WorkerBase):
         return self.model_runner.execute_model(scheduler_output)
 
     def sample_tokens(self, grammar_output: Any) -> Any:
-        # Unreachable in this platform's current shape: `execute_model` samples
-        # and returns a populated `ModelRunnerOutput`, and vLLM only calls this
-        # when that returned None. Structured output is what would split the two.
+        # JaxPlatform disables asynchronous scheduling because this runner
+        # samples inside execute_model and returns a complete ModelRunnerOutput.
+        # Reaching this hook means that platform constraint was bypassed.
         raise NotImplementedError(
-            "JaxWorker.execute_model returns a complete ModelRunnerOutput, so "
-            "sample_tokens is never called. Splitting them is what structured "
-            "output support would need."
+            "JaxWorker does not support vLLM's separate asynchronous sampling "
+            "hook; JaxPlatform must disable async_scheduling."
         )
 
     def execute_dummy_batch(self) -> None:

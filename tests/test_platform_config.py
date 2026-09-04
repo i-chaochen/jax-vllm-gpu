@@ -22,10 +22,14 @@ def make_config(**kwargs):
         user_specified_block_size=kwargs.pop("user_specified_block_size", False),
         block_size=kwargs.pop("block_size", 0),
     )
+    scheduler = SimpleNamespace(
+        async_scheduling=kwargs.pop("async_scheduling", True),
+    )
     model = SimpleNamespace(max_model_len=kwargs.pop("max_model_len", 2048))
     return SimpleNamespace(
         parallel_config=parallel,
         cache_config=cache,
+        scheduler_config=scheduler,
         model_config=model,
         additional_config=kwargs.pop("additional_config", {}),
     )
@@ -45,6 +49,13 @@ def test_a_single_pipeline_stage_uses_the_uniproc_executor():
     JaxPlatform.check_and_update_config(config)
 
     assert config.parallel_config.distributed_executor_backend == "uni"
+
+
+def test_async_scheduling_is_disabled_until_sampling_is_split():
+    config = make_config(async_scheduling=True)
+    JaxPlatform.check_and_update_config(config)
+
+    assert config.scheduler_config.async_scheduling is False
 
 
 def test_pipeline_parallelism_is_left_alone():

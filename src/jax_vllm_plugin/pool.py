@@ -29,7 +29,9 @@ from maxtext.inference.kv_common import KvStorageLayoutV1
 logger = logging.getLogger(__name__)
 
 
-def allocate(layout: KvStorageLayoutV1, mesh: Any | None = None) -> Any:
+def allocate(
+    layout: KvStorageLayoutV1, mesh: Any | None = None, config: Any | None = None
+) -> Any:
     """Allocate a zeroed pool for `layout`, sharded to `mesh`.
 
     Zeroed rather than uninitialised, and that matters twice over: vLLM's block
@@ -38,8 +40,9 @@ def allocate(layout: KvStorageLayoutV1, mesh: Any | None = None) -> Any:
     """
     from maxtext.inference.kv_execution.layout_builder import kv_pool_sharding
     from maxtext.inference.kv_execution.pool_factory import allocate_pool
+    from .mesh import _call_maxtext_layout
 
-    sharding = kv_pool_sharding(mesh, layout)
+    sharding = _call_maxtext_layout(kv_pool_sharding, config, mesh, layout)
     pool = allocate_pool(layout, sharding=sharding)
     logger.info(
         "Allocated KV pool: %d layers x 2 x %s %s, %.2f GiB per shard across %d shard(s).",

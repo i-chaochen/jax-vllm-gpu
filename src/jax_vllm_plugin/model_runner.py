@@ -28,7 +28,11 @@ afterwards; `pool.rebind` is what keeps the next step pointing at live memory.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import re
+import time
 from typing import Any
 
 import numpy as np
@@ -41,6 +45,129 @@ from .page_table import RequestPages
 from .step import prepare_step
 
 logger = logging.getLogger(__name__)
+
+_RUN_REQUEST_RE = re.compile(
+    r"^(?:(?:chat)?cmpl-)?(?P<phase>warmup|measure)(?P<rep>[1-9][0-9]*)-"
+)
+
+
+def _run_identity(requests) -> tuple[str, int | None]:
+    """Return a conservative benchmark phase/repetition label."""
+    labels: set[tuple[str, int]] = set()
+    unknown = False
+    for request in requests:
+        match = _RUN_REQUEST_RE.match(request.request_id)
+        if match is None:
+            unknown = True
+            continue
+        phase = "measured" if match.group("phase") == "measure" else "warmup"
+        labels.add((phase, int(match.group("rep"))))
+    if not labels:
+        return "unknown", None
+    if unknown or len(labels) != 1:
+        return "cross_run", None
+    return next(iter(labels))
+
+
+def _scheduled_token_split(requests, token_states) -> dict[str, int | str]:
+    """Split scheduled work at each request's prompt boundary."""
+    prompt_tokens = 0
+    output_tokens = 0
+    prefill_requests = 0
+    decode_requests = 0
+    for request in requests:
+        prompt_end = token_states[request.request_id].num_prompt_tokens
+        start = request.num_computed_tokens
+        end = start + request.num_scheduled_tokens
+        prompt = max(0, min(end, prompt_end) - min(start, prompt_end))
+        output = request.num_scheduled_tokens - prompt
+        prompt_tokens += prompt
+        output_tokens += output
+        prefill_requests += int(prompt > 0)
+        decode_requests += int(output > 0)
+
+    if prompt_tokens and output_tokens:
+        batch_kind = "mixed"
+    elif prompt_tokens:
+        batch_kind = "prefill"
+    else:
+        batch_kind = "decode"
+    return {
+        "batch_kind": batch_kind,
+        "prefill_requests": prefill_requests,
+        "decode_requests": decode_requests,
+        "scheduled_prompt_tokens": prompt_tokens,
+        "scheduled_output_tokens": output_tokens,
+        "scheduled_tokens": prompt_tokens + output_tokens,
+    }
+
+
+def _prepared_model_inputs(
+    inputs,
+    *,
+    is_decode: bool,
+    active_requests: int,
+    request_width: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Reuse MaxText's host inputs without a device round trip.
+
+    `prepare_step` already builds the padded token, position, and sampling
+    arrays. Reconstructing them from `StepView` both duplicated that work and,
+    because `StepView.cu_seqlens_q` is a JAX array, copied metadata back from
+    the device only to send the derived sample rows to the device again.
+    """
+    input_ids = np.asarray(inputs.tokens, dtype=np.int32).reshape(-1)
+    input_positions = np.asarray(inputs.positions, dtype=np.int32).reshape(-1)
+    if is_decode:
+        active_sample_rows = np.asarray(
+            inputs.sample_rows[:active_requests], dtype=np.int32
+        )
+    else:
+        active_sample_rows = np.asarray(inputs.sample_at, dtype=np.int32)
+    sample_rows = _pad(active_sample_rows, request_width, 0)
+    return input_ids, input_positions, sample_rows
+
+
+def _attention_max_seqlen_q(shape) -> int:
+    """Return a tight static upper bound for any query segment.
+
+    The token bucket is the sum across requests, not the longest request.
+    Passing that sum as `max_seqlen_q` made an 8,192-token mixed batch look
+    like one 8,192-token query to the paged-prefill kernel. A request's query
+    cannot exceed either the total token bucket or its post-step context bound.
+    """
+    if shape.is_decode:
+        return 1
+    return min(int(shape.num_tokens), int(shape.max_seqlen_k))
+
+
+def _densify_token_rungs(rungs) -> tuple[int, ...]:
+    """Insert midpoints below the largest power-of-two interval.
+
+    JAX needs static token extents, but powers of two are not the only bounded
+    policy. Midpoints cap padding at roughly 1.5x while preserving a small,
+    deterministic executable set. The largest interval stays coarse: a
+    near-maximum bucket is expensive to compile, is sensitive to request-arrival
+    timing, and saved no padded work in the matched production trace.
+    """
+    base = tuple(int(rung) for rung in rungs)
+    if len(base) < 2:
+        return base
+    dense: list[int] = []
+    for lower, upper in zip(base[:-2], base[1:-1], strict=True):
+        dense.append(lower)
+        midpoint = lower + (upper - lower) // 2
+        if lower < midpoint < upper:
+            dense.append(midpoint)
+    dense.extend(base[-2:])
+    return tuple(dense)
+
+
+def _next_rng(rng, *, all_greedy: bool, split):
+    """Do not dispatch a random split for a program that cannot use randomness."""
+    if all_greedy:
+        return rng, rng
+    return split(rng)
 
 
 class RequestTokens:
@@ -96,6 +223,10 @@ class JaxModelRunner:
         self._state_leaves: Any = None
         self._step_fn: Any = None
         self._rng: Any = None
+        self._log_shapes = os.environ.get("JAX_VLLM_LOG_SHAPES") == "1"
+        self._observed_shapes: set[Any] = set()
+        self._step_telemetry = os.environ.get("JAX_VLLM_STEP_TELEMETRY") == "1"
+        self._step_telemetry_index = 0
 
         self.tokens_per_page = int(self.cache_config.block_size)
 
@@ -183,7 +314,7 @@ class JaxModelRunner:
         from .mesh import assert_kv_heads_shardable, kv_head_shards, pool_replicas
 
         num_layers, num_kv_heads, head_dim = self.model_geometry()
-        assert_kv_heads_shardable(self.mesh, num_kv_heads)
+        assert_kv_heads_shardable(self.maxtext_config, self.mesh, num_kv_heads)
 
         num_blocks = int(kv_cache_config.num_blocks)
         self.layout = build_layout(
@@ -193,11 +324,11 @@ class JaxModelRunner:
             dtype_name=str(getattr(self.maxtext_config, "dtype", "bfloat16")),
             tokens_per_page=self.tokens_per_page,
             num_pages=num_blocks,
-            kv_head_shards=kv_head_shards(self.mesh),
-            pool_replicas=pool_replicas(self.mesh),
+            kv_head_shards=kv_head_shards(self.maxtext_config, self.mesh),
+            pool_replicas=pool_replicas(self.maxtext_config, self.mesh),
         )
 
-        self.pool = pool_module.allocate(self.layout, self.mesh)
+        self.pool = pool_module.allocate(self.layout, self.mesh, self.maxtext_config)
         self.scrub = pool_module.make_scrub_fn(self.pool)
         self.tracker = PageReuseTracker(
             num_pages=num_blocks, tokens_per_page=self.tokens_per_page
@@ -209,6 +340,8 @@ class JaxModelRunner:
             pool_pages=num_blocks,
             max_batched_tokens=int(self.scheduler_config.max_num_batched_tokens),
         )
+        self.planner.token_rungs = _densify_token_rungs(self.planner.token_rungs)
+        logger.info("Serving token buckets: %s.", self.planner.token_rungs)
         self._step_fn = self._build_step_fn()
 
     # ------------------------------------------------------------ the step
@@ -272,11 +405,9 @@ class JaxModelRunner:
 
             # Second element is logits on this path, despite the adapter naming
             # it `hidden`; see the module docstring.
-            kv_caches, logits, _aux, _experts = model(kv_caches, input_ids, metadata)
-
-            # Select before sampling so the transforms run over one row per
-            # request rather than one per token, which for a long prefill is the
-            # difference between a batch-sized softmax and a chunk-sized one.
+            kv_caches, logits, _aux, _experts = model(
+                kv_caches, input_ids, metadata
+            )
             selected = jnp.take(logits, sample_rows, axis=0)
             tokens = sampling.sample(
                 rng, selected, (temperature, top_p, top_k), all_greedy
@@ -291,6 +422,7 @@ class JaxModelRunner:
 
         from vllm.v1.outputs import EMPTY_MODEL_RUNNER_OUTPUT, ModelRunnerOutput
 
+        step_start_ns = time.monotonic_ns() if self._step_telemetry else 0
         self._admit(scheduler_output)
         self.batch_state.apply(scheduler_output)
         self._retire(scheduler_output)
@@ -300,6 +432,19 @@ class JaxModelRunner:
 
         requests = self.batch_state.pages_for_step(scheduler_output)
         shape = self._shape_for(requests)
+        max_seqlen_q = _attention_max_seqlen_q(shape)
+        if self._log_shapes and shape not in self._observed_shapes:
+            self._observed_shapes.add(shape)
+            request_id = requests[0].request_id if requests else "-"
+            logger.warning(
+                "JAX_VLLM_NEW_SHAPE index=%d request=%s active_requests=%d "
+                "active_tokens=%d shape=%s",
+                len(self._observed_shapes),
+                request_id,
+                len(requests),
+                sum(r.num_scheduled_tokens for r in requests),
+                shape,
+            )
 
         prepared = prepare_step(
             requests,
@@ -312,19 +457,23 @@ class JaxModelRunner:
         )
 
         view = prepared.view
-        input_ids = self._padded_tokens(requests, shape.num_tokens)
-        positions = _pad(prepared.table.write_positions, shape.num_tokens, 0)
+        input_ids, positions, sample_rows = _prepared_model_inputs(
+            prepared.inputs,
+            is_decode=shape.is_decode,
+            active_requests=len(requests),
+            request_width=shape.num_requests,
+        )
         spec = sampling.from_params(
             [self.requests[r.request_id].sampling_params for r in requests],
             vocab_size=int(self.model_config.get_vocab_size()),
         )
-        sample_rows = _pad(
-            np.asarray(view.cu_seqlens_q)[1 : len(requests) + 1] - 1,
-            shape.num_requests,
-            0,
-        )
 
-        self._rng, step_rng = jax.random.split(self._rng)
+        self._rng, step_rng = _next_rng(
+            self._rng,
+            all_greedy=spec.all_greedy,
+            split=jax.random.split,
+        )
+        execute_start_ns = time.monotonic_ns() if self._step_telemetry else 0
         with self.mesh:
             updated, tokens = self._step_fn(
                 self._state_leaves,
@@ -341,7 +490,7 @@ class JaxModelRunner:
                 jnp.asarray(_pad(spec.top_p, shape.num_requests, 1.0)),
                 jnp.asarray(_pad(spec.top_k, shape.num_requests, 1)),
                 step_rng,
-                max_seqlen_q=view.max_seqlen_q,
+                max_seqlen_q=max_seqlen_q,
                 max_seqlen_k=shape.max_seqlen_k,
                 is_decode=shape.is_decode,
                 all_greedy=spec.all_greedy,
@@ -349,6 +498,48 @@ class JaxModelRunner:
         pool_module.rebind(self.pool, updated)
 
         sampled = np.asarray(jax.device_get(tokens), dtype=np.int64)
+        execute_end_ns = time.monotonic_ns() if self._step_telemetry else 0
+        if self._step_telemetry:
+            self._step_telemetry_index += 1
+            run_phase, run_rep = _run_identity(requests)
+            token_split = _scheduled_token_split(requests, self.requests)
+            query_lens = np.asarray(prepared.table.query_lens)
+            seq_lens = np.asarray(prepared.table.seq_lens)
+            record = {
+                "schema": 1,
+                "event": "jax_vllm_step",
+                "step_index": self._step_telemetry_index,
+                "run_phase": run_phase,
+                "run_rep": run_rep,
+                "active_requests": len(requests),
+                "resident_requests": len(self.batch_state),
+                **token_split,
+                "true_shape": {
+                    "num_requests": int(prepared.view.num_active_requests),
+                    "num_tokens": int(prepared.view.num_active_tokens),
+                    "num_pages": sum(len(row) for row in prepared.table.page_ids),
+                    "max_seqlen_q": int(query_lens.max()) if query_lens.size else 0,
+                    "max_seqlen_k": int(seq_lens.max()) if seq_lens.size else 0,
+                },
+                "padded_shape": {
+                    "num_requests": int(shape.num_requests),
+                    "num_tokens": int(shape.num_tokens),
+                    "num_pages": int(shape.num_pages),
+                    "max_seqlen_q": max_seqlen_q,
+                    "max_seqlen_k": int(shape.max_seqlen_k),
+                    "is_decode": bool(shape.is_decode),
+                },
+                "timing_ns": {
+                    "start_monotonic": step_start_ns,
+                    "prepare": execute_start_ns - step_start_ns,
+                    "execute_blocking": execute_end_ns - execute_start_ns,
+                    "timed_total": execute_end_ns - step_start_ns,
+                },
+            }
+            logger.warning(
+                "JAX_VLLM_STEP %s",
+                json.dumps(record, sort_keys=True, separators=(",", ":")),
+            )
         return ModelRunnerOutput(
             req_ids=[r.request_id for r in requests],
             req_id_to_index={r.request_id: i for i, r in enumerate(requests)},
@@ -372,29 +563,12 @@ class JaxModelRunner:
             request.num_computed_tokens, request.num_scheduled_tokens
         )
 
-    def _padded_tokens(self, requests, width: int) -> np.ndarray:
-        """This step's input tokens, flattened in request order and padded.
-
-        Flat `[num_tokens]` rather than `[batch, seq]`: MaxText's vLLM adapter
-        treats vLLM's flattened tokens as a batch of length-one sequences, and
-        gets attention structure from the plan instead of from the shape.
-        """
-        flat = np.zeros((width,), dtype=np.int32)
-        cursor = 0
-        for request in requests:
-            tokens = self._tokens_for(request)
-            flat[cursor : cursor + tokens.size] = tokens
-            cursor += tokens.size
-        return flat
-
     def _shape_for(self, requests) -> Any:
         query_lens = [r.num_scheduled_tokens for r in requests]
         max_seq_len = max((r.seq_len for r in requests), default=1)
         if all(length == 1 for length in query_lens):
             return self.planner.decode_shape(len(requests), max_seq_len)
-        return self.planner.extend_shape(
-            sum(query_lens), max_seq_len, num_requests=len(requests)
-        )
+        return self.planner.extend_shape(sum(query_lens), max_seq_len)
 
     def _collect(self, requests, sampled: np.ndarray) -> list[list[int]]:
         """One sampled token per request, or none while it is still prefilling.

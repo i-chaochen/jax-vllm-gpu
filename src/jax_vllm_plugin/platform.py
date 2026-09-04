@@ -121,6 +121,14 @@ class JaxPlatform(Platform):
         parallel_config = vllm_config.parallel_config
         parallel_config.worker_cls = "jax_vllm_plugin.worker.JaxWorker"
 
+        # The runner samples inside execute_model and returns a complete
+        # ModelRunnerOutput. vLLM's asynchronous path instead calls the
+        # worker's separate sample_tokens hook, which this platform does not
+        # implement yet.
+        scheduler_config = getattr(vllm_config, "scheduler_config", None)
+        if scheduler_config is not None:
+            scheduler_config.async_scheduling = False
+
         # One vLLM worker drives every GPU through a JAX mesh, so vLLM must not
         # fan out into a process per device. tensor_parallel_size is consumed as
         # a mesh axis by the runner rather than as a process count.
