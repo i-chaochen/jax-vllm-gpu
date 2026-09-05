@@ -32,6 +32,7 @@ import json
 import logging
 import os
 import re
+import sys
 import time
 from typing import Any
 
@@ -230,6 +231,18 @@ class JaxModelRunner:
         self._step_telemetry_index = 0
         self._roctx = Roctx.from_environment()
         self._roctx_step_index = 0
+        self._xplane_dir = os.environ.get("JAX_VLLM_XPLANE_DIR")
+        self._xplane_expected_tokens = int(
+            os.environ.get("JAX_VLLM_XPLANE_EXPECTED_TOKENS", "0")
+        )
+        if self._xplane_dir and self._xplane_expected_tokens <= 0:
+            raise ValueError(
+                "JAX_VLLM_XPLANE_EXPECTED_TOKENS must be positive when "
+                "JAX_VLLM_XPLANE_DIR is set"
+            )
+        self._xplane_started = False
+        self._xplane_done = False
+        self._xplane_tokens = 0
 
         self.tokens_per_page = int(self.cache_config.block_size)
 
@@ -476,20 +489,47 @@ class JaxModelRunner:
             all_greedy=spec.all_greedy,
             split=jax.random.split,
         )
-        if self._roctx is not None:
+        profile_metadata = None
+        if self._roctx is not None or (self._xplane_dir and not self._xplane_done):
             self._roctx_step_index += 1
             run_phase, run_rep = _run_identity(requests)
             token_split = _scheduled_token_split(requests, self.requests)
+            profile_metadata = {
+                "phase": run_phase,
+                "rep": run_rep or 0,
+                "step": self._roctx_step_index,
+                "kind": token_split["batch_kind"],
+                "active_requests": len(requests),
+                "true_tokens": token_split["scheduled_tokens"],
+                "padded_tokens": shape.num_tokens,
+                "max_seqlen_q": max_seqlen_q,
+                "max_seqlen_k": shape.max_seqlen_k,
+            }
+        if self._roctx is not None:
             self._roctx.push(
                 "JAX_VLLM_MODEL_CALL "
-                f"phase={run_phase} rep={run_rep or 0} "
-                f"step={self._roctx_step_index} kind={token_split['batch_kind']} "
-                f"active_requests={len(requests)} "
-                f"true_tokens={token_split['scheduled_tokens']} "
-                f"padded_tokens={shape.num_tokens} "
-                f"max_seqlen_q={max_seqlen_q} "
-                f"max_seqlen_k={shape.max_seqlen_k}"
+                + " ".join(f"{key}={value}" for key, value in profile_metadata.items())
             )
+        xplane_call = bool(
+            self._xplane_dir
+            and not self._xplane_done
+            and profile_metadata["phase"] == "measured"
+            and profile_metadata["rep"] == 1
+        )
+        if xplane_call and not self._xplane_started:
+            jax.profiler.start_trace(
+                self._xplane_dir,
+                create_perfetto_trace=True,
+                create_perfetto_link=False,
+            )
+            self._xplane_started = True
+        annotation = None
+        if xplane_call:
+            annotation = jax.profiler.TraceAnnotation(
+                "JAX_VLLM_MODEL_CALL",
+                **profile_metadata,
+            )
+            annotation.__enter__()
         execute_start_ns = time.monotonic_ns() if self._step_telemetry else 0
         try:
             with self.mesh:
@@ -516,8 +556,20 @@ class JaxModelRunner:
             pool_module.rebind(self.pool, updated)
             sampled = np.asarray(jax.device_get(tokens), dtype=np.int64)
         finally:
+            if annotation is not None:
+                annotation.__exit__(*sys.exc_info())
             if self._roctx is not None:
                 self._roctx.pop()
+        if xplane_call:
+            self._xplane_tokens += int(profile_metadata["true_tokens"])
+            if self._xplane_tokens > self._xplane_expected_tokens:
+                raise RuntimeError(
+                    "XPlane capture exceeded its expected true-token total: "
+                    f"{self._xplane_tokens} > {self._xplane_expected_tokens}"
+                )
+            if self._xplane_tokens == self._xplane_expected_tokens:
+                jax.profiler.stop_trace()
+                self._xplane_done = True
         execute_end_ns = time.monotonic_ns() if self._step_telemetry else 0
         if self._step_telemetry:
             self._step_telemetry_index += 1
