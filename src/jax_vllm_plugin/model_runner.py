@@ -42,6 +42,7 @@ from . import paged_plan, sampling
 from .batch_state import BatchState
 from .kv_reuse import PageReuseTracker
 from .page_table import RequestPages
+from .profiling import Roctx
 from .step import prepare_step
 
 logger = logging.getLogger(__name__)
@@ -227,6 +228,8 @@ class JaxModelRunner:
         self._observed_shapes: set[Any] = set()
         self._step_telemetry = os.environ.get("JAX_VLLM_STEP_TELEMETRY") == "1"
         self._step_telemetry_index = 0
+        self._roctx = Roctx.from_environment()
+        self._roctx_step_index = 0
 
         self.tokens_per_page = int(self.cache_config.block_size)
 
@@ -473,31 +476,48 @@ class JaxModelRunner:
             all_greedy=spec.all_greedy,
             split=jax.random.split,
         )
-        execute_start_ns = time.monotonic_ns() if self._step_telemetry else 0
-        with self.mesh:
-            updated, tokens = self._step_fn(
-                self._state_leaves,
-                pool_module.as_kv_caches(self.pool),
-                jnp.asarray(input_ids),
-                jnp.asarray(positions),
-                view.slot_mapping,
-                view.kv_indptr,
-                view.kv_page_indices,
-                view.kv_last_page_lens,
-                view.cu_seqlens_q,
-                jnp.asarray(sample_rows),
-                jnp.asarray(_pad(spec.temperature, shape.num_requests, 0.0)),
-                jnp.asarray(_pad(spec.top_p, shape.num_requests, 1.0)),
-                jnp.asarray(_pad(spec.top_k, shape.num_requests, 1)),
-                step_rng,
-                max_seqlen_q=max_seqlen_q,
-                max_seqlen_k=shape.max_seqlen_k,
-                is_decode=shape.is_decode,
-                all_greedy=spec.all_greedy,
+        if self._roctx is not None:
+            self._roctx_step_index += 1
+            run_phase, run_rep = _run_identity(requests)
+            token_split = _scheduled_token_split(requests, self.requests)
+            self._roctx.push(
+                "JAX_VLLM_MODEL_CALL "
+                f"phase={run_phase} rep={run_rep or 0} "
+                f"step={self._roctx_step_index} kind={token_split['batch_kind']} "
+                f"active_requests={len(requests)} "
+                f"true_tokens={token_split['scheduled_tokens']} "
+                f"padded_tokens={shape.num_tokens} "
+                f"max_seqlen_q={max_seqlen_q} "
+                f"max_seqlen_k={shape.max_seqlen_k}"
             )
-        pool_module.rebind(self.pool, updated)
-
-        sampled = np.asarray(jax.device_get(tokens), dtype=np.int64)
+        execute_start_ns = time.monotonic_ns() if self._step_telemetry else 0
+        try:
+            with self.mesh:
+                updated, tokens = self._step_fn(
+                    self._state_leaves,
+                    pool_module.as_kv_caches(self.pool),
+                    jnp.asarray(input_ids),
+                    jnp.asarray(positions),
+                    view.slot_mapping,
+                    view.kv_indptr,
+                    view.kv_page_indices,
+                    view.kv_last_page_lens,
+                    view.cu_seqlens_q,
+                    jnp.asarray(sample_rows),
+                    jnp.asarray(_pad(spec.temperature, shape.num_requests, 0.0)),
+                    jnp.asarray(_pad(spec.top_p, shape.num_requests, 1.0)),
+                    jnp.asarray(_pad(spec.top_k, shape.num_requests, 1)),
+                    step_rng,
+                    max_seqlen_q=max_seqlen_q,
+                    max_seqlen_k=shape.max_seqlen_k,
+                    is_decode=shape.is_decode,
+                    all_greedy=spec.all_greedy,
+                )
+            pool_module.rebind(self.pool, updated)
+            sampled = np.asarray(jax.device_get(tokens), dtype=np.int64)
+        finally:
+            if self._roctx is not None:
+                self._roctx.pop()
         execute_end_ns = time.monotonic_ns() if self._step_telemetry else 0
         if self._step_telemetry:
             self._step_telemetry_index += 1
