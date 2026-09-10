@@ -182,7 +182,7 @@ def main() -> int:
     counter = iter(range(1, kv_cache_config.num_blocks))
     next_block = lambda: next(counter)  # noqa: E731
 
-    output = worker.execute_model(scheduler_output([prompt_ids], block_size, next_block))
+    output = _step(worker, scheduler_output([prompt_ids], block_size, next_block))
     stage("prefill")
     log.info("Prefill sampled: %s", output.sampled_token_ids)
 
@@ -192,8 +192,8 @@ def main() -> int:
     # is the prompt length, not the prompt length plus one.
     lengths = {"req-0": len(prompt_ids)}
     for step in range(args.steps):
-        out = worker.execute_model(
-            decode_output(["req-0"], generated, block_size, next_block, lengths)
+        out = _step(
+            worker, decode_output(["req-0"], generated, block_size, next_block, lengths)
         )
         stage(f"decode {step}")
         token = out.sampled_token_ids[0]
@@ -206,6 +206,19 @@ def main() -> int:
     log.info("Generated token ids: %s", generated)
     log.info("Generated text: %r", tokenizer.decode(generated))
     return 0
+
+
+def _step(worker, scheduler_output):
+    """One step in the order the engine uses.
+
+    `execute_model` then `sample_tokens`, because that is what both of vLLM's
+    step paths do and the tokens only come out of the second. Fabricating the
+    scheduler's messages is already a compromise this harness makes; fabricating
+    the *call sequence* as well is how it came to encode a worker design that no
+    engine path actually supports.
+    """
+    output = worker.execute_model(scheduler_output)
+    return worker.sample_tokens(None) if output is None else output
 
 
 def _kv_cache_config(spec, available_bytes, block_cap):

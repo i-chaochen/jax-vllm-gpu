@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING
 
 from vllm.platforms.interface import Platform, PlatformEnum
 
+from . import torch_shims
+
 if TYPE_CHECKING:
     from vllm.config import VllmConfig
     from vllm.v1.attention.backends.registry import AttentionBackendEnum
@@ -118,6 +120,10 @@ class JaxPlatform(Platform):
     @classmethod
     def check_and_update_config(cls, vllm_config: "VllmConfig") -> None:
         """Called very early in vLLM startup; this is where worker_cls is set."""
+        # Before anything else, because it makes teardown survivable and
+        # teardown runs even for a startup that fails after this point.
+        torch_shims.install()
+
         parallel_config = vllm_config.parallel_config
         parallel_config.worker_cls = "jax_vllm_plugin.worker.JaxWorker"
 

@@ -29,7 +29,7 @@ afterwards; `pool.rebind` is what keeps the next step pointing at live memory.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 
@@ -41,6 +41,19 @@ from .page_table import RequestPages
 from .step import prepare_step
 
 logger = logging.getLogger(__name__)
+
+
+class PendingStep(NamedTuple):
+    """What `execute_model` leaves for `sample_tokens` to finish.
+
+    `logits` stays a device array. It is already one row per request, so this
+    is small, and moving it to the host here would put a synchronisation point
+    between the two calls that the batch-queue path exists to avoid.
+    """
+
+    requests: tuple
+    logits: Any
+    shape: Any
 
 
 class RequestTokens:
@@ -94,8 +107,12 @@ class JaxModelRunner:
         self._graphdef: Any = None
         self._state_treedef: Any = None
         self._state_leaves: Any = None
-        self._step_fn: Any = None
+        self._forward_fn: Any = None
+        self._sample_fn: Any = None
         self._rng: Any = None
+
+        # Carries one step's logits from execute_model to sample_tokens.
+        self._pending: PendingStep | None = None
 
         self.tokens_per_page = int(self.cache_config.block_size)
 
@@ -115,7 +132,7 @@ class JaxModelRunner:
         self._rng = jax.random.key(int(self.model_config.seed or 0))
         self._rng, init_rng = jax.random.split(self._rng)
 
-        with self.mesh:
+        with jax.set_mesh(self.mesh):
             model = model_cls(self.vllm_config, init_rng, self.mesh)
             # `load_weights` is a no-op once the model exists, which is the case
             # after a dummy-weight init; calling it unconditionally is what
@@ -209,18 +226,24 @@ class JaxModelRunner:
             pool_pages=num_blocks,
             max_batched_tokens=int(self.scheduler_config.max_num_batched_tokens),
         )
-        self._step_fn = self._build_step_fn()
+        self._forward_fn = self._build_forward_fn()
+        self._sample_fn = self._build_sample_fn()
 
     # ------------------------------------------------------------ the step
 
-    def _build_step_fn(self):
-        """Compile the forward-plus-sample step.
+    def _build_forward_fn(self):
+        """Compile the forward pass, up to one row of logits per request.
 
         `is_decode` and the padded extents are static, so a shape from the
         bucketing ladder selects an existing executable rather than triggering a
         recompile. That is the whole reason the ladder exists: without it every
         distinct token count in a serving trace is a fresh compile of an
         80-layer model.
+
+        Row selection happens inside this trace rather than after it, so what
+        crosses into `sample_tokens` is `[num_requests, vocab]` rather than
+        `[num_tokens, vocab]`. On a long prefill chunk that is the difference
+        between a few megabytes and a few gigabytes.
         """
         import functools
 
@@ -233,10 +256,10 @@ class JaxModelRunner:
 
         @functools.partial(
             jax.jit,
-            static_argnames=("max_seqlen_q", "max_seqlen_k", "is_decode", "all_greedy"),
+            static_argnames=("max_seqlen_q", "max_seqlen_k", "is_decode"),
             donate_argnames=("kv_caches",),
         )
-        def step(
+        def forward(
             state_leaves,
             kv_caches,
             input_ids,
@@ -247,15 +270,10 @@ class JaxModelRunner:
             kv_last_page_lens,
             cu_seqlens_q,
             sample_rows,
-            temperature,
-            top_p,
-            top_k,
-            rng,
             *,
             max_seqlen_q: int,
             max_seqlen_k: int,
             is_decode: bool,
-            all_greedy: bool,
         ):
             model = nnx.merge(graphdef, jax.tree_util.tree_unflatten(treedef, state_leaves))
             metadata = paged_plan.PagedPlanWithPositions(
@@ -273,29 +291,58 @@ class JaxModelRunner:
             # Second element is logits on this path, despite the adapter naming
             # it `hidden`; see the module docstring.
             kv_caches, logits, _aux, _experts = model(kv_caches, input_ids, metadata)
+            return kv_caches, jnp.take(logits, sample_rows, axis=0)
 
-            # Select before sampling so the transforms run over one row per
-            # request rather than one per token, which for a long prefill is the
-            # difference between a batch-sized softmax and a chunk-sized one.
-            selected = jnp.take(logits, sample_rows, axis=0)
-            tokens = sampling.sample(
-                rng, selected, (temperature, top_p, top_k), all_greedy
-            )
-            return kv_caches, tokens
+        return forward
 
-        return step
+    def _build_sample_fn(self):
+        """Compile sampling, separately from the forward pass.
+
+        Separate because vLLM samples in a separate call: `step_with_batch_queue`
+        hands the engine `sample_tokens`'s future and discards `execute_model`'s,
+        so the tokens have to be produced there. Keeping the logits on device
+        between the two makes that split free rather than a round trip.
+        """
+        import functools
+
+        import jax
+
+        @functools.partial(jax.jit, static_argnames=("all_greedy",))
+        def sample(rng, logits, temperature, top_p, top_k, *, all_greedy: bool):
+            return sampling.sample(rng, logits, (temperature, top_p, top_k), all_greedy)
+
+        return sample
 
     def execute_model(self, scheduler_output: Any) -> Any:
+        """Run the forward pass and stash its logits. Returns None by design.
+
+        Returning None is what tells vLLM to call `sample_tokens` next, and it
+        is not optional. `step_with_batch_queue` queues the *sample_tokens*
+        future and reads the `ModelRunnerOutput` from that, discarding whatever
+        this returned -- so a runner that sampled here and reported completion
+        would have its output silently dropped on that path. The other path,
+        plain `step`, calls `sample_tokens` only when this returns None. None
+        therefore satisfies both, and anything else satisfies at most one.
+        """
         import jax
         import jax.numpy as jnp
 
-        from vllm.v1.outputs import EMPTY_MODEL_RUNNER_OUTPUT, ModelRunnerOutput
+        from vllm.v1.outputs import EMPTY_MODEL_RUNNER_OUTPUT
+
+        if self._pending is not None:
+            raise RuntimeError(
+                "execute_model was called twice without sample_tokens in "
+                "between; the first step's logits would be discarded"
+            )
 
         self._admit(scheduler_output)
         self.batch_state.apply(scheduler_output)
         self._retire(scheduler_output)
 
         if not getattr(scheduler_output, "total_num_scheduled_tokens", 0):
+            # Nothing to stash, so nothing for sample_tokens to do. Returned
+            # rather than None because on the batch-queue path an unexecuted
+            # step's future is this one.
             return EMPTY_MODEL_RUNNER_OUTPUT
 
         requests = self.batch_state.pages_for_step(scheduler_output)
@@ -314,19 +361,14 @@ class JaxModelRunner:
         view = prepared.view
         input_ids = self._padded_tokens(requests, shape.num_tokens)
         positions = _pad(prepared.table.write_positions, shape.num_tokens, 0)
-        spec = sampling.from_params(
-            [self.requests[r.request_id].sampling_params for r in requests],
-            vocab_size=int(self.model_config.get_vocab_size()),
-        )
         sample_rows = _pad(
             np.asarray(view.cu_seqlens_q)[1 : len(requests) + 1] - 1,
             shape.num_requests,
             0,
         )
 
-        self._rng, step_rng = jax.random.split(self._rng)
-        with self.mesh:
-            updated, tokens = self._step_fn(
+        with jax.set_mesh(self.mesh):
+            updated, logits = self._forward_fn(
                 self._state_leaves,
                 pool_module.as_kv_caches(self.pool),
                 jnp.asarray(input_ids),
@@ -337,16 +379,53 @@ class JaxModelRunner:
                 view.kv_last_page_lens,
                 view.cu_seqlens_q,
                 jnp.asarray(sample_rows),
-                jnp.asarray(_pad(spec.temperature, shape.num_requests, 0.0)),
-                jnp.asarray(_pad(spec.top_p, shape.num_requests, 1.0)),
-                jnp.asarray(_pad(spec.top_k, shape.num_requests, 1)),
-                step_rng,
                 max_seqlen_q=view.max_seqlen_q,
                 max_seqlen_k=shape.max_seqlen_k,
                 is_decode=shape.is_decode,
-                all_greedy=spec.all_greedy,
             )
         pool_module.rebind(self.pool, updated)
+
+        self._pending = PendingStep(requests=requests, logits=logits, shape=shape)
+        return None
+
+    def sample_tokens(self, grammar_output: Any = None) -> Any:
+        """Sample from the stashed logits and report the step.
+
+        Reached with nothing stashed whenever `execute_model` had no tokens to
+        run, which the engine does not treat as an error, so it answers with an
+        empty output rather than raising.
+        """
+        import jax
+        import jax.numpy as jnp
+
+        from vllm.v1.outputs import EMPTY_MODEL_RUNNER_OUTPUT, ModelRunnerOutput
+
+        pending, self._pending = self._pending, None
+        if pending is None:
+            return EMPTY_MODEL_RUNNER_OUTPUT
+
+        if grammar_output is not None:
+            raise NotImplementedError(
+                "structured output is not supported yet; the grammar bitmask "
+                "would have to mask the logits before this sample"
+            )
+
+        requests, shape = pending.requests, pending.shape
+        spec = sampling.from_params(
+            [self.requests[r.request_id].sampling_params for r in requests],
+            vocab_size=int(self.model_config.get_vocab_size()),
+        )
+
+        self._rng, step_rng = jax.random.split(self._rng)
+        with jax.set_mesh(self.mesh):
+            tokens = self._sample_fn(
+                step_rng,
+                pending.logits,
+                jnp.asarray(_pad(spec.temperature, shape.num_requests, 0.0)),
+                jnp.asarray(_pad(spec.top_p, shape.num_requests, 1.0)),
+                jnp.asarray(_pad(spec.top_k, shape.num_requests, 1)),
+                all_greedy=spec.all_greedy,
+            )
 
         sampled = np.asarray(jax.device_get(tokens), dtype=np.int64)
         return ModelRunnerOutput(

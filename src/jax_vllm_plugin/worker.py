@@ -208,17 +208,13 @@ class JaxWorker(WorkerBase):
     # ----------------------------------------------------------- the request
 
     def execute_model(self, scheduler_output: Any) -> Any:
+        """Runs the forward pass and returns None, leaving the tokens to
+        `sample_tokens`. See the runner for why None is the only answer that
+        works on both of the engine's step paths."""
         return self.model_runner.execute_model(scheduler_output)
 
     def sample_tokens(self, grammar_output: Any) -> Any:
-        # Unreachable in this platform's current shape: `execute_model` samples
-        # and returns a populated `ModelRunnerOutput`, and vLLM only calls this
-        # when that returned None. Structured output is what would split the two.
-        raise NotImplementedError(
-            "JaxWorker.execute_model returns a complete ModelRunnerOutput, so "
-            "sample_tokens is never called. Splitting them is what structured "
-            "output support would need."
-        )
+        return self.model_runner.sample_tokens(grammar_output)
 
     def execute_dummy_batch(self) -> None:
         return
