@@ -29,10 +29,12 @@ afterwards; `pool.rebind` is what keeps the next step pointing at live memory.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, NamedTuple
 
 import numpy as np
 
+from . import metrics
 from . import pool as pool_module
 from . import paged_plan, sampling
 from .batch_state import BatchState
@@ -49,11 +51,17 @@ class PendingStep(NamedTuple):
     `logits` stays a device array. It is already one row per request, so this
     is small, and moving it to the host here would put a synchronisation point
     between the two calls that the batch-queue path exists to avoid.
+
+    `started` is when the step began, so the timing recorded at the end of
+    `sample_tokens` covers the whole step. Measuring the two halves separately
+    would attribute nothing to `execute_model`, which enqueues asynchronously and
+    returns before the work is done.
     """
 
     requests: tuple
     logits: Any
     shape: Any
+    started: float
 
 
 class RequestTokens:
@@ -329,6 +337,7 @@ class JaxModelRunner:
 
         from vllm.v1.outputs import EMPTY_MODEL_RUNNER_OUTPUT
 
+        started = time.perf_counter()
         if self._pending is not None:
             raise RuntimeError(
                 "execute_model was called twice without sample_tokens in "
@@ -385,7 +394,9 @@ class JaxModelRunner:
             )
         pool_module.rebind(self.pool, updated)
 
-        self._pending = PendingStep(requests=requests, logits=logits, shape=shape)
+        self._pending = PendingStep(
+            requests=requests, logits=logits, shape=shape, started=started
+        )
         return None
 
     def sample_tokens(self, grammar_output: Any = None) -> Any:
@@ -427,11 +438,22 @@ class JaxModelRunner:
                 all_greedy=spec.all_greedy,
             )
 
+        # The device_get is the step's only synchronisation point, so timing has
+        # to stop after it: everything before returns while the work is still in
+        # flight.
         sampled = np.asarray(jax.device_get(tokens), dtype=np.int64)
+        emitted = self._collect(requests, sampled)
+        metrics.STEPS.record(
+            shape=shape,
+            seconds=time.perf_counter() - pending.started,
+            num_requests=len(requests),
+            tokens=sum(len(row) for row in emitted),
+        )
+
         return ModelRunnerOutput(
             req_ids=[r.request_id for r in requests],
             req_id_to_index={r.request_id: i for i, r in enumerate(requests)},
-            sampled_token_ids=self._collect(requests, sampled),
+            sampled_token_ids=emitted,
         )
 
     # --------------------------------------------------------------- pieces
