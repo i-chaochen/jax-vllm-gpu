@@ -213,6 +213,9 @@ class JaxWorker(WorkerBase):
     # ----------------------------------------------------------- the request
 
     def execute_model(self, scheduler_output: Any) -> Any:
+        """Runs the forward pass and returns None, leaving the tokens to
+        `sample_tokens`. See the runner for why None is the only answer that
+        works on both of the engine's step paths."""
         return self.model_runner.execute_model(scheduler_output)
 
     def sample_tokens(self, grammar_output: Any) -> Any:

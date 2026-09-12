@@ -23,8 +23,8 @@ class FakeTokens:
 
 
 class FakeRunner:
-    def _model_output(self, requests, sampled, states=None):
-        return requests, sampled, states
+    def _model_output(self, requests, sampled, states=None, step=None):
+        return requests, sampled, states, step
 
 
 def test_async_output_starts_copy_and_materializes_once(monkeypatch):
@@ -37,13 +37,16 @@ def test_async_output_starts_copy_and_materializes_once(monkeypatch):
         tokens,
         states=("state-a", "state-b"),
         on_complete=lambda: completed.append(True),
+        step="the-pending-step",
     )
 
     assert tokens.copy_started
-    requests, sampled, states = output.get_output()
+    requests, sampled, states, step = output.get_output()
     assert requests == ("a", "b")
     # Captured at submission, so a retired or reused request id cannot redirect it.
     assert states == ("state-a", "state-b")
+    # Forwarded so the step's duration is measured from its dispatch, not its read.
+    assert step == "the-pending-step"
     np.testing.assert_array_equal(sampled, np.array([3, 4], np.int64))
     assert completed == [True]
 

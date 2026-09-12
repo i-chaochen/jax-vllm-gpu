@@ -22,6 +22,7 @@ class JaxAsyncModelRunnerOutput(AsyncModelRunnerOutput):
         *,
         states: tuple[Any, ...] | None = None,
         on_complete: Callable[[], None] | None = None,
+        step: Any = None,
     ) -> None:
         self._runner = runner
         self._requests = requests
@@ -30,6 +31,9 @@ class JaxAsyncModelRunnerOutput(AsyncModelRunnerOutput):
         self._states = states
         self._tokens = tokens
         self._on_complete = on_complete
+        # The PendingStep this output finishes, carried so the step's duration is
+        # recorded against when it was dispatched rather than when it was read.
+        self._step = step
         self._consumed = False
 
         copy_to_host_async = getattr(tokens, "copy_to_host_async", None)
@@ -46,7 +50,7 @@ class JaxAsyncModelRunnerOutput(AsyncModelRunnerOutput):
         try:
             sampled = np.asarray(jax.device_get(self._tokens), dtype=np.int64)
             return self._runner._model_output(
-                self._requests, sampled, states=self._states
+                self._requests, sampled, states=self._states, step=self._step
             )
         finally:
             if self._on_complete is not None:

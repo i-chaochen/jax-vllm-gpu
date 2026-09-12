@@ -35,10 +35,11 @@ import re
 import sys
 import time
 from threading import Lock
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 
+from . import metrics
 from . import pool as pool_module
 from . import paged_plan, sampling
 from .batch_state import BatchState
@@ -356,6 +357,38 @@ def _next_rng(rng, *, all_greedy: bool, split):
     return split(rng)
 
 
+class PendingStep(NamedTuple):
+    """What `execute_model` leaves for `sample_tokens` to finish.
+
+    `tokens` stays a device array, and it is sampled tokens rather than logits
+    because this runner samples inside the same jitted step as the forward pass.
+    Splitting the two would put a second device dispatch on every model call,
+    and dispatch count is a measured cost here: the serving replay already
+    issues around 203 fusion dispatches per model call against native
+    PyTorch-vLLM's 74.
+
+    What is *not* split is the contract. `execute_model` still has to return
+    without an output and leave the tokens for `sample_tokens`, because
+    `step_with_batch_queue` queues the `sample_tokens` future and reads the
+    `ModelRunnerOutput` from it, discarding whatever `execute_model` returned.
+
+    `states` is the per-request token state captured at submission. Resolving it
+    later through `runner.requests` could hit a retired or textually reused
+    request id and append this step's token onto the wrong request.
+
+    `started` is when the step began, so the duration recorded once the tokens
+    land covers the whole step. Timing only the dispatch would attribute nothing
+    to it, since the dispatch returns while the work is still in flight.
+    """
+
+    requests: tuple
+    states: tuple
+    tokens: Any
+    shape: Any
+    started: float
+    on_complete: Any
+
+
 class RequestTokens:
     """A request's token sequence and how it should be sampled.
 
@@ -473,7 +506,9 @@ class JaxModelRunner:
         self._max_request_slots = int(self.scheduler_config.max_num_seqs)
         self._free_token_slots = list(range(self._max_request_slots - 1, -1, -1))
         self._chained_tokens: Any = None
-        self._pending_async_result: Any = None
+        # Carries one step's sampled tokens from execute_model to sample_tokens,
+        # on both the synchronous and the asynchronous path.
+        self._pending: PendingStep | None = None
 
         self.model: Any = None
         self.pool: Any = None
@@ -862,12 +897,25 @@ class JaxModelRunner:
 
         from vllm.v1.outputs import EMPTY_MODEL_RUNNER_OUTPUT
 
+        # Checked before anything is mutated: a second dispatch without the
+        # intervening sample would overwrite the first step's tokens, and the
+        # request bookkeeping below would already have advanced past them.
+        if self._pending is not None:
+            raise RuntimeError(
+                "execute_model was called twice without sample_tokens in "
+                "between; the first step's tokens would be discarded"
+            )
+
+        step_started_s = time.perf_counter()
         step_start_ns = time.monotonic_ns() if self._step_telemetry else 0
         self._retire(scheduler_output)
         self._admit(scheduler_output)
         self.batch_state.apply(scheduler_output)
 
         if not getattr(scheduler_output, "total_num_scheduled_tokens", 0):
+            # Nothing stashed, so nothing for sample_tokens to finish. Returned
+            # rather than None because on the batch-queue path this is the
+            # future the engine reads for an unexecuted step.
             return EMPTY_MODEL_RUNNER_OUTPUT
 
         requests = self.batch_state.pages_for_step(scheduler_output)
@@ -1033,8 +1081,6 @@ class JaxModelRunner:
                 )
             pool_module.rebind(self.pool, updated)
             self._chained_tokens = chained_tokens
-            if not self._async_scheduling:
-                sampled = np.asarray(jax.device_get(tokens), dtype=np.int64)
         finally:
             if annotation is not None:
                 annotation.__exit__(*sys.exc_info())
@@ -1050,55 +1096,6 @@ class JaxModelRunner:
                         self._roctx_profile_range_id = None
                     self._roctx.profiler_pause()
                     self._roctx_profile_done = True
-        if self._async_scheduling:
-            if self._step_telemetry:
-                self._emit_step_ledger(
-                    requests,
-                    prepared=prepared,
-                    shape=shape,
-                    max_seqlen_q=max_seqlen_q,
-                    step_start_ns=step_start_ns,
-                    execute_start_ns=execute_start_ns,
-                    execute_end_ns=time.monotonic_ns(),
-                )
-            if self._pending_async_result is not None:
-                raise RuntimeError(
-                    "sample_tokens was not called after the previous async model step"
-                )
-            on_complete = None
-            if self._roctx is not None:
-                on_complete = (
-                    lambda metadata=profile_metadata,
-                    selected=roctx_profile_call: self._finish_async_roctx_call(
-                        metadata,
-                        selected,
-                    )
-                )
-            # Capture the RequestTokens objects, not just the ids: vLLM may retire
-            # or textually reuse an id before this output is read back, and a
-            # dict lookup then raises KeyError or appends this generation's token
-            # onto a different request. Object identity, not a copy -- _collect
-            # must still append to the live state the chaining path reads.
-            self._pending_async_result = (
-                tuple(requests),
-                tuple(self.requests[r.request_id] for r in requests),
-                tokens,
-                on_complete,
-            )
-            return None
-        if roctx_profile_call:
-            self._account_roctx_profile_tokens(profile_metadata)
-        if xplane_call:
-            self._xplane_tokens += int(profile_metadata["true_tokens"])
-            if self._xplane_tokens > self._xplane_expected_tokens:
-                raise RuntimeError(
-                    "XPlane capture exceeded its expected true-token total: "
-                    f"{self._xplane_tokens} > {self._xplane_expected_tokens}"
-                )
-            if self._xplane_tokens == self._xplane_expected_tokens:
-                jax.profiler.stop_trace()
-                self._xplane_done = True
-        execute_end_ns = time.monotonic_ns() if self._step_telemetry else 0
         if self._step_telemetry:
             self._emit_step_ledger(
                 requests,
@@ -1107,9 +1104,37 @@ class JaxModelRunner:
                 max_seqlen_q=max_seqlen_q,
                 step_start_ns=step_start_ns,
                 execute_start_ns=execute_start_ns,
-                execute_end_ns=execute_end_ns,
+                execute_end_ns=time.monotonic_ns(),
             )
-        return self._model_output(requests, sampled)
+
+        # Profiler bookkeeping runs when the tokens land, not here. Both the
+        # selected-region token count and XPlane's stop condition are statements
+        # about completed steps, and this function returns while the step is
+        # still in flight on the device.
+        def on_complete(
+            metadata=profile_metadata,
+            roctx_selected=roctx_profile_call,
+            xplane_selected=xplane_call,
+        ) -> None:
+            if roctx_selected:
+                self._account_roctx_profile_tokens(metadata)
+            if xplane_selected:
+                self._account_xplane_tokens(metadata)
+
+        # Capture the RequestTokens objects, not just the ids: vLLM may retire
+        # or textually reuse an id before this output is read back, and a
+        # dict lookup then raises KeyError or appends this generation's token
+        # onto a different request. Object identity, not a copy -- _collect
+        # must still append to the live state the chaining path reads.
+        self._pending = PendingStep(
+            requests=tuple(requests),
+            states=tuple(self.requests[r.request_id] for r in requests),
+            tokens=tokens,
+            shape=shape,
+            started=step_started_s,
+            on_complete=on_complete,
+        )
+        return None
 
     def _emit_step_ledger(
         self,
@@ -1176,13 +1201,18 @@ class JaxModelRunner:
             json.dumps(record, sort_keys=True, separators=(",", ":")),
         )
 
-    def _finish_async_roctx_call(
-        self,
-        profile_metadata: dict[str, Any],
-        profile_call: bool,
-    ) -> None:
-        if profile_call:
-            self._account_roctx_profile_tokens(profile_metadata)
+    def _account_xplane_tokens(self, profile_metadata: dict[str, Any]) -> None:
+        import jax
+
+        self._xplane_tokens += int(profile_metadata["true_tokens"])
+        if self._xplane_tokens > self._xplane_expected_tokens:
+            raise RuntimeError(
+                "XPlane capture exceeded its expected true-token total: "
+                f"{self._xplane_tokens} > {self._xplane_expected_tokens}"
+            )
+        if self._xplane_tokens == self._xplane_expected_tokens:
+            jax.profiler.stop_trace()
+            self._xplane_done = True
 
     def _account_roctx_profile_tokens(
         self,
@@ -1203,34 +1233,76 @@ class JaxModelRunner:
                 self._roctx.profiler_pause()
                 self._roctx_profile_done = True
 
-    def sample_tokens(self, grammar_output: Any) -> Any:
-        """Start async token readback for the step dispatched by execute_model."""
-        if not self._async_scheduling:
-            raise RuntimeError("sample_tokens requires async scheduling")
+    def sample_tokens(self, grammar_output: Any = None) -> Any:
+        """Finish the step `execute_model` dispatched.
+
+        Reached with nothing pending whenever `execute_model` had no tokens to
+        run, which the engine does not treat as an error, so it answers with an
+        empty output rather than raising.
+
+        Under async scheduling this hands back an output that has not read the
+        tokens yet, so vLLM can schedule the next step while the copy is in
+        flight. Otherwise it blocks here, which is the step's only
+        synchronisation point.
+        """
+        from vllm.v1.outputs import EMPTY_MODEL_RUNNER_OUTPUT
+
+        pending, self._pending = self._pending, None
+        if pending is None:
+            return EMPTY_MODEL_RUNNER_OUTPUT
         if grammar_output is not None:
-            raise ValueError("structured-output grammar is unsupported")
-        if self._pending_async_result is None:
-            raise RuntimeError("sample_tokens called without a pending model step")
+            raise NotImplementedError(
+                "structured output is not supported yet; the grammar bitmask "
+                "would have to mask the logits before the sample, which happens "
+                "inside the jitted step"
+            )
 
-        from .async_output import JaxAsyncModelRunnerOutput
+        if self._async_scheduling:
+            from .async_output import JaxAsyncModelRunnerOutput
 
-        requests, states, tokens, on_complete = self._pending_async_result
-        self._pending_async_result = None
-        return JaxAsyncModelRunnerOutput(
-            self,
-            requests,
-            tokens,
-            states=states,
-            on_complete=on_complete,
-        )
+            return JaxAsyncModelRunnerOutput(
+                self,
+                pending.requests,
+                pending.tokens,
+                states=pending.states,
+                on_complete=pending.on_complete,
+                step=pending,
+            )
 
-    def _model_output(self, requests, sampled: np.ndarray, states=None) -> Any:
+        import jax
+
+        try:
+            sampled = np.asarray(jax.device_get(pending.tokens), dtype=np.int64)
+            return self._model_output(
+                pending.requests, sampled, states=pending.states, step=pending
+            )
+        finally:
+            pending.on_complete()
+
+    def _model_output(
+        self,
+        requests,
+        sampled: np.ndarray,
+        states=None,
+        step: PendingStep | None = None,
+    ) -> Any:
         from vllm.v1.outputs import ModelRunnerOutput
 
+        emitted = self._collect(requests, sampled, states=states)
+        if step is not None:
+            # Recorded here rather than in either caller because this is the one
+            # point both the blocking and the async path pass through once the
+            # tokens exist, and the emitted count is only known after collection.
+            metrics.STEPS.record(
+                shape=step.shape,
+                seconds=time.perf_counter() - step.started,
+                num_requests=len(requests),
+                tokens=sum(len(row) for row in emitted),
+            )
         return ModelRunnerOutput(
             req_ids=[r.request_id for r in requests],
             req_id_to_index={r.request_id: i for i, r in enumerate(requests)},
-            sampled_token_ids=self._collect(requests, sampled, states=states),
+            sampled_token_ids=emitted,
         )
 
     # --------------------------------------------------------------- pieces
