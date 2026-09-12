@@ -8,6 +8,9 @@ import ctypes.util
 import os
 
 ROCTX_ENV_VAR = "JAX_VLLM_ROCTX"
+ROCTX_SELECTED_REGIONS_ENV_VAR = "JAX_VLLM_ROCTX_SELECTED_REGIONS"
+ROCTX_EXPECTED_TOKENS_ENV_VAR = "JAX_VLLM_ROCTX_EXPECTED_TOKENS"
+ROCTX_PROFILE_REP_ENV_VAR = "JAX_VLLM_ROCTX_PROFILE_REP"
 
 
 class Roctx:
@@ -31,6 +34,12 @@ class Roctx:
         self._stop = library.roctxRangeStop
         self._stop.argtypes = [ctypes.c_uint64]
         self._stop.restype = None
+        self._pause = library.roctxProfilerPause
+        self._pause.argtypes = [ctypes.c_uint64]
+        self._pause.restype = ctypes.c_int
+        self._resume = library.roctxProfilerResume
+        self._resume.argtypes = [ctypes.c_uint64]
+        self._resume.restype = ctypes.c_int
 
     @classmethod
     def from_environment(cls) -> "Roctx | None":
@@ -61,3 +70,13 @@ class Roctx:
 
     def stop(self, range_id: int) -> None:
         self._stop(range_id)
+
+    def profiler_pause(self) -> None:
+        """Stop collection globally when rocprofv3 uses selected regions."""
+        if self._pause(0) != 0:
+            raise RuntimeError("roctxProfilerPause failed")
+
+    def profiler_resume(self) -> None:
+        """Start collection globally when rocprofv3 uses selected regions."""
+        if self._resume(0) != 0:
+            raise RuntimeError("roctxProfilerResume failed")

@@ -9,7 +9,11 @@ import pytest
 
 pytest.importorskip("vllm", reason="vLLM is supplied by the runtime image")
 
-from jax_vllm_plugin.platform import DEFAULT_TOKENS_PER_PAGE, JaxPlatform
+from jax_vllm_plugin.platform import (
+    ASYNC_SCHEDULING_ENV_VAR,
+    DEFAULT_TOKENS_PER_PAGE,
+    JaxPlatform,
+)
 
 
 def make_config(**kwargs):
@@ -61,11 +65,20 @@ def test_a_single_pipeline_stage_uses_the_uniproc_executor():
     assert config.parallel_config.distributed_executor_backend == "uni"
 
 
-def test_async_scheduling_is_disabled_until_sampling_is_split():
+def test_async_scheduling_is_disabled_by_default(monkeypatch):
+    monkeypatch.delenv(ASYNC_SCHEDULING_ENV_VAR, raising=False)
     config = make_config(async_scheduling=True)
     JaxPlatform.check_and_update_config(config)
 
     assert config.scheduler_config.async_scheduling is False
+
+
+def test_async_scheduling_can_be_enabled_explicitly(monkeypatch):
+    monkeypatch.setenv(ASYNC_SCHEDULING_ENV_VAR, "1")
+    config = make_config(async_scheduling=True)
+    JaxPlatform.check_and_update_config(config)
+
+    assert config.scheduler_config.async_scheduling is True
 
 
 def test_pipeline_parallelism_is_rejected():

@@ -17,6 +17,19 @@ from __future__ import annotations
 from typing import Any
 
 from maxtext.inference.kv_common import KvStorageLayoutV1
+from maxtext.inference.kv_common.storage_layout import (
+    KV_LAYOUT_NHD,
+    KV_LAYOUT_X_VECTORIZED,
+)
+
+__all__ = [
+    "KV_LAYOUT_NHD",
+    "KV_LAYOUT_X_VECTORIZED",
+    "blocks_that_fit",
+    "build_kv_cache_spec",
+    "build_layout",
+    "layer_names",
+]
 
 
 def layer_names(num_layers: int) -> tuple[str, ...]:
@@ -64,12 +77,17 @@ def build_layout(
     num_pages: int,
     kv_head_shards: int = 1,
     pool_replicas: int = 1,
+    kv_layout: str = KV_LAYOUT_NHD,
 ) -> KvStorageLayoutV1:
     """Build the pool layout from vLLM's negotiated block count.
 
     `num_pages` is taken as vLLM's total block count rather than that count plus
     one. MaxText's own builder adds a page because it reserves the padding page
     itself; here vLLM has already reserved block 0.
+
+    `kv_layout` selects the physical arrangement. It cannot change the block
+    count: the two layouts hold the same bytes per page, so vLLM's negotiation
+    is unaffected and the two arms stay comparable.
     """
     return KvStorageLayoutV1(
         tokens_per_page=tokens_per_page,
@@ -81,6 +99,7 @@ def build_layout(
         kv_head_shards=kv_head_shards,
         pool_replicas=pool_replicas,
         padding_page_id=0,
+        kv_layout=kv_layout,
     )
 
 

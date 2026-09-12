@@ -120,7 +120,16 @@ class BatchState:
         """Assemble this step's per-request pages, in a stable order.
 
         Ordering follows `num_scheduled_tokens`, which is what vLLM iterates, so
-        the rows of the page table and of the sampled output agree.
+        the rows of the page table and of the sampled output agree, then puts the
+        chunk-prefilling requests first.
+
+        Prefill-first is what lets attention run the single-token rows on the
+        decode kernel: the split slices the batch at a static row, so the two
+        kinds have to be contiguous. The sort is *stable*, so within each group
+        vLLM's own order is preserved, and every consumer downstream -- the page
+        table, the token packing, `sample_rows`, and the `req_ids` /
+        `req_id_to_index` the output is attributed by -- derives its order from
+        this one list rather than from `scheduler_output`.
         """
         scheduled = getattr(scheduler_output, "num_scheduled_tokens", {}) or {}
         pages: list[RequestPages] = []
@@ -138,4 +147,5 @@ class BatchState:
                     num_scheduled_tokens=num_tokens,
                 )
             )
+        pages.sort(key=lambda request: request.num_scheduled_tokens == 1)
         return pages

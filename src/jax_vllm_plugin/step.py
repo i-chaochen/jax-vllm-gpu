@@ -48,6 +48,9 @@ def prepare_step(
     tokens_per_page: int,
     token_ids: Callable[[RequestPages], np.ndarray],
     padding_page_id: int = 0,
+    view_array_factory: Callable[..., Any] | None = None,
+    num_prefill_requests: int | None = None,
+    block_table_blocks: int | None = None,
 ) -> PreparedStep:
     """Run one step's host-side preparation.
 
@@ -60,6 +63,13 @@ def prepare_step(
       token_ids: yields exactly the tokens this step feeds for a request, whose
         length must equal its scheduled token count.
       padding_page_id: pool page reserved as a padding target.
+      num_prefill_requests: how many leading requests are chunk-prefilling, when
+        `shape` reserves prefill slots. The view and the token packing both need
+        it to place the decode half at the static split offset.
+      block_table_blocks: columns of the dense page map AITER's ASM decode
+        takes, or None to skip building it. Must come from the bucket rather
+        than the live batch, or it introduces a new compiled shape per context
+        length.
     """
     pending = tracker.observe(requests)
     if pending.size:
@@ -71,12 +81,14 @@ def prepare_step(
     # The refusal that makes the guarantee structural rather than remembered.
     tracker.assert_clean(table.flat_page_indices())
 
-    view = build_step_view(
-        table,
-        shape,
-        tokens_per_page,
-        padding_page_id=padding_page_id,
-    )
+    view_kwargs = {"padding_page_id": padding_page_id}
+    if view_array_factory is not None:
+        view_kwargs["array_factory"] = view_array_factory
+    if num_prefill_requests is not None:
+        view_kwargs["num_prefill_requests"] = num_prefill_requests
+    if block_table_blocks is not None:
+        view_kwargs["block_table_blocks"] = block_table_blocks
+    view = build_step_view(table, shape, tokens_per_page, **view_kwargs)
 
     slices = []
     for request in requests:
@@ -95,7 +107,12 @@ def prepare_step(
             )
         )
 
-    inputs = build_step_inputs(slices, shape, is_decode=shape.is_decode)
+    inputs = build_step_inputs(
+        slices,
+        shape,
+        is_decode=shape.is_decode,
+        num_prefill_requests=num_prefill_requests,
+    )
 
     # Only after the table is accepted, so a step that raised leaves no trace
     # suggesting its pages were written.

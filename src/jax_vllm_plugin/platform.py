@@ -28,6 +28,7 @@ PLATFORM_QUALNAME = "jax_vllm_plugin.platform.JaxPlatform"
 # a probe failure is indistinguishable from the wheel not being installed,
 # because vLLM swallows exceptions raised by platform plugins.
 FORCE_ENV_VAR = "VLLM_JAX_PLATFORM"
+ASYNC_SCHEDULING_ENV_VAR = "JAX_VLLM_ASYNC_SCHEDULING"
 
 # Present whenever the amdgpu kernel driver has exposed a compute device. This
 # is checked instead of importing jax and calling jax.devices(), which would
@@ -126,13 +127,15 @@ class JaxPlatform(Platform):
             )
         parallel_config.worker_cls = "jax_vllm_plugin.worker.JaxWorker"
 
-        # The runner samples inside execute_model and returns a complete
-        # ModelRunnerOutput. vLLM's asynchronous path instead calls the
-        # worker's separate sample_tokens hook, which this platform does not
-        # implement yet.
+        # Device-side token chaining is opt-in while it is validated in
+        # production. The CLI must also request async scheduling so vLLM derives
+        # its batch-queue settings before this platform hook runs.
         scheduler_config = getattr(vllm_config, "scheduler_config", None)
         if scheduler_config is not None:
-            scheduler_config.async_scheduling = False
+            scheduler_config.async_scheduling = bool(
+                scheduler_config.async_scheduling
+                and os.environ.get(ASYNC_SCHEDULING_ENV_VAR) == "1"
+            )
 
         # One vLLM worker drives every GPU through a JAX mesh, so vLLM must not
         # fan out into a process per device. tensor_parallel_size is consumed as

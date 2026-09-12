@@ -26,6 +26,8 @@ def fake_library(push_result=0, pop_result=0):
         roctxRangePop=FakeFunction(pop_result),
         roctxRangeStartA=FakeFunction(17),
         roctxRangeStop=FakeFunction(None),
+        roctxProfilerPause=FakeFunction(0),
+        roctxProfilerResume=FakeFunction(0),
     )
 
 
@@ -43,12 +45,16 @@ def test_range_names_are_encoded_and_balanced():
     roctx.pop()
     range_id = roctx.start("async model call")
     roctx.stop(range_id)
+    roctx.profiler_resume()
+    roctx.profiler_pause()
 
     assert library.roctxRangePushA.calls == [(b"model call",)]
     assert library.roctxRangePop.calls == [()]
     assert range_id == 17
     assert library.roctxRangeStartA.calls == [(b"async model call",)]
     assert library.roctxRangeStop.calls == [(17,)]
+    assert library.roctxProfilerResume.calls == [(0,)]
+    assert library.roctxProfilerPause.calls == [(0,)]
 
 
 def test_invalid_or_failed_ranges_are_reported():
@@ -58,3 +64,16 @@ def test_invalid_or_failed_ranges_are_reported():
         roctx.push("bad\x00name")
     with pytest.raises(RuntimeError, match="Push"):
         roctx.push("failed")
+
+
+@pytest.mark.parametrize(
+    ("name", "method"),
+    (("roctxProfilerResume", "profiler_resume"), ("roctxProfilerPause", "profiler_pause")),
+)
+def test_failed_profiler_control_is_reported(name, method):
+    library = fake_library()
+    getattr(library, name).result = 1
+    roctx = Roctx(library)
+
+    with pytest.raises(RuntimeError, match=name):
+        getattr(roctx, method)()

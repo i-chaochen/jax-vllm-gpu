@@ -48,5 +48,9 @@ def from_step_view(view: Any, input_positions: Any) -> PagedPlanWithPositions:
         max_seqlen_q=plan.max_seqlen_q,
         max_seqlen_k=plan.max_seqlen_k,
         is_decode=plan.is_decode,
+        num_prefill_requests=plan.num_prefill_requests,
+        num_prefill_tokens=plan.num_prefill_tokens,
+        block_tables=plan.block_tables,
+        context_lens=plan.context_lens,
         input_positions=input_positions,
     )
