@@ -20,6 +20,7 @@ buffer.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import numpy as np
@@ -27,9 +28,12 @@ import numpy as np
 from maxtext.inference.kv_common import KvStorageLayoutV1
 
 logger = logging.getLogger(__name__)
+FUSED_SCRUB_ENV_VAR = "JAX_VLLM_FUSED_PAGE_SCRUB"
 
 
-def allocate(layout: KvStorageLayoutV1, mesh: Any | None = None) -> Any:
+def allocate(
+    layout: KvStorageLayoutV1, mesh: Any | None = None, config: Any | None = None
+) -> Any:
     """Allocate a zeroed pool for `layout`, sharded to `mesh`.
 
     Zeroed rather than uninitialised, and that matters twice over: vLLM's block
@@ -38,13 +42,18 @@ def allocate(layout: KvStorageLayoutV1, mesh: Any | None = None) -> Any:
     """
     from maxtext.inference.kv_execution.layout_builder import kv_pool_sharding
     from maxtext.inference.kv_execution.pool_factory import allocate_pool
+    from .mesh import _call_maxtext_layout
 
-    sharding = kv_pool_sharding(mesh, layout)
+    sharding = _call_maxtext_layout(kv_pool_sharding, config, mesh, layout)
     pool = allocate_pool(layout, sharding=sharding)
+    k_shape, v_shape = pool.page_shapes
     logger.info(
-        "Allocated KV pool: %d layers x 2 x %s %s, %.2f GiB per shard across %d shard(s).",
+        "Allocated KV pool (%s): %d layers x K %s / V %s %s, "
+        "%.2f GiB per shard across %d shard(s).",
+        layout.kv_layout,
         layout.num_layers,
-        pool.page_shape,
+        k_shape,
+        v_shape,
         layout.dtype,
         layout.pool_bytes_per_shard() / 2**30,
         layout.kv_head_shards,
@@ -67,13 +76,96 @@ def rebind(pool: Any, updated: Any) -> None:
         pool.replace_layer(layer, pair[0], pair[1])
 
 
+def scrub_bucket(size: int) -> int:
+    """Round a scrub count up to a power of two.
+
+    `jax.jit` specializes on `page_ids.shape[0]`, so an unbucketed count compiles
+    a fresh executable for every distinct number of recycled pages: one measured
+    replay accumulated 158 of them, 8 compiling *during* measurement and
+    contaminating step preparation by ~222-227 ms while the launcher's gate, which
+    watched only `jit(step)`, reported zero compilations.
+
+    A power-of-two ladder bounds that at about a dozen, and matches the
+    convention `pool_ops._pad_page_indices` already uses for the non-fused path.
+    """
+    size = int(size)
+    if size <= 1:
+        return 1
+    return 1 << (size - 1).bit_length()
+
+
 def make_scrub_fn(pool: Any):
-    """A `step.ScrubFn` that zeroes pages of this pool, in one dispatch.
+    """A `step.ScrubFn` that zeroes pages of this pool.
 
     Closes over the pool rather than taking it as an argument because
     `prepare_step` deliberately knows nothing about device memory; the scrub is
     injected precisely so the host-side ordering stays testable without a GPU.
     """
+    if os.environ.get(FUSED_SCRUB_ENV_VAR, "1") != "0":
+        from jax_aiter.ffi.registry import standalone_symbol_available
+        from jax_aiter.ops.scrub_kv_pages import TARGET, scrub_kv_pages
+
+        if standalone_symbol_available(TARGET):
+            import jax
+            import jax.numpy as jnp
+
+            fused_scrub = jax.jit(scrub_kv_pages, donate_argnums=(0,))
+
+            def scrub(page_ids: np.ndarray) -> None:
+                page_ids = np.asarray(page_ids, dtype=np.int32).reshape(-1)
+                if page_ids.size == 0:
+                    return
+                width = scrub_bucket(page_ids.size)
+                if width != page_ids.size:
+                    # -1 is inert by construction: the first-party kernel rejects
+                    # negative page ids before it computes any address
+                    # (csrc/ffi/kv/scrub_kv_pages_ja.cu). Each pad entry costs one
+                    # block per pool that returns immediately.
+                    page_ids = np.concatenate(
+                        [
+                            page_ids,
+                            np.full((width - page_ids.size,), -1, dtype=np.int32),
+                        ]
+                    )
+                pools = tuple(pool.k_pages) + tuple(pool.v_pages)
+                updated = fused_scrub(pools, jnp.asarray(page_ids, jnp.int32))
+                for layer in range(pool.num_layers):
+                    pool.replace_layer(
+                        layer,
+                        updated[layer],
+                        updated[pool.num_layers + layer],
+                    )
+
+            def warm(max_pages: int) -> tuple[int, ...]:
+                """Compile every rung, so measurement never pays for one.
+
+                An all -1 batch is a real call at the rung's shape but scrubs
+                nothing, so warming cannot disturb pool contents.
+                """
+                rungs = []
+                width = 1
+                while True:
+                    scrub(np.full((width,), -1, dtype=np.int32))
+                    rungs.append(width)
+                    if width >= max_pages:
+                        break
+                    width <<= 1
+                logger.info("Warmed %d page-scrub shapes: %s.", len(rungs), rungs)
+                return tuple(rungs)
+
+            scrub.warm = warm
+            logger.info(
+                "Using one-dispatch JAX-AITER page scrub for %d KV pools.",
+                2 * pool.num_layers,
+            )
+            return scrub
+
+        logger.warning(
+            "%s is enabled but %s is unavailable; using the per-pool JAX scrub.",
+            FUSED_SCRUB_ENV_VAR,
+            TARGET,
+        )
+
     from maxtext.inference.kv_execution.pool_ops import scrub_pages_all_layers
 
     def scrub(page_ids: np.ndarray) -> None:

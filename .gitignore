@@ -6,3 +6,8 @@ dist/
 .pytest_cache/
 .venv/
 venv/
+
+# rocprofv3 drops its raw .dat traces in the directory the profiled process was
+# launched from, which is this repository. A single serving capture is hundreds
+# of megabytes.
+.rocprofv3/

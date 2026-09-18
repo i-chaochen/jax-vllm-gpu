@@ -57,7 +57,9 @@ def a_runner():
             max_model_len=256, seed=0, get_vocab_size=lambda: VOCAB
         ),
         cache_config=SimpleNamespace(block_size=PAGE),
-        scheduler_config=SimpleNamespace(max_num_seqs=4, max_num_batched_tokens=256),
+        scheduler_config=SimpleNamespace(
+            max_num_seqs=4, max_num_batched_tokens=256, async_scheduling=False
+        ),
     )
     mesh = jax.sharding.Mesh(np.asarray(jax.devices()[:1]).reshape(1), ("model",))
     runner = JaxModelRunner(vllm_config, mesh)
@@ -79,20 +81,37 @@ def a_runner():
     )
     runner._rng = jax.random.key(0)
     runner._state_leaves = ()
+    runner._chained_tokens = jnp.zeros((0,), jnp.int32)
+    # The prefill/decode split reserves eight leading request rows, which a
+    # four-request fixture cannot supply. It is orthogonal to call ordering,
+    # which is what these tests pin.
+    runner._prefill_slots = None
 
-    def forward(state_leaves, kv_caches, *args, **kwargs):
-        rows = kwargs.get("_rows") or args[-1].shape[0]
-        return kv_caches, jnp.zeros((rows, VOCAB), jnp.float32)
+    def step(state_leaves, kv_caches, packed_ints, packed_floats, chained, rng, **kw):
+        """Stands in for forward-plus-sample, which this runner keeps fused.
 
-    runner._forward_fn = forward
-    runner._sample_fn = lambda rng, logits, *a, **k: jnp.argmax(logits, axis=-1)
+        Sampling lives inside the same jitted step as the forward pass, so the
+        stub returns tokens rather than logits. The `execute_model` /
+        `sample_tokens` contract the rest of this file pins is unaffected: it is
+        a statement about when the host may read the tokens, not about how many
+        device dispatches produce them.
+        """
+        return kv_caches, jnp.zeros((kw["num_requests"],), jnp.int32), chained
+
+    runner._step_fn = step
     return runner
 
 
-def a_scheduler_output(prompt_len=4, blocks=(1,)):
-    """The minimum a first prefill step carries, duck-typed."""
+def a_scheduler_output(prompt_len=4, blocks=(1,), req_id="r0"):
+    """The minimum a first prefill step carries, duck-typed.
+
+    `req_id` is a parameter because this runner registers each new request with
+    the page-reuse tracker, which refuses to admit the same id twice. Reusing
+    one id across two *new*-request steps is a different error from the one any
+    caller here means to provoke.
+    """
     request = SimpleNamespace(
-        req_id="r0",
+        req_id=req_id,
         prompt_token_ids=list(range(prompt_len)),
         sampling_params=SimpleNamespace(temperature=0.0, top_p=1.0, top_k=0),
         block_ids=(list(blocks),),
@@ -102,7 +121,7 @@ def a_scheduler_output(prompt_len=4, blocks=(1,)):
         scheduled_new_reqs=[request],
         scheduled_cached_reqs=None,
         finished_req_ids=(),
-        num_scheduled_tokens={"r0": prompt_len},
+        num_scheduled_tokens={req_id: prompt_len},
         total_num_scheduled_tokens=prompt_len,
     )
 
@@ -150,7 +169,7 @@ def test_the_pending_step_is_cleared_so_the_next_step_can_run():
     runner.execute_model(a_scheduler_output())
     runner.sample_tokens(None)
 
-    assert runner.execute_model(a_scheduler_output(blocks=(2,))) is None
+    assert runner.execute_model(a_scheduler_output(blocks=(2,), req_id="r1")) is None
 
 
 def test_structured_output_is_refused_rather_than_ignored():

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 
 import pytest
 
@@ -106,6 +107,28 @@ def test_finished_requests_are_dropped():
     assert len(state) == 0
 
 
+def test_a_finished_request_id_can_be_reused_in_the_same_step():
+    state = BatchState()
+    state.apply(FakeOutput(scheduled_new_reqs=[FakeNewReq("a", ([1],), 0)]))
+
+    state.apply(
+        FakeOutput(
+            scheduled_new_reqs=[FakeNewReq("a", ([7],), 0)],
+            finished_req_ids={"a"},
+        )
+    )
+
+    assert state.get("a").block_ids == [7]
+
+
+def test_duplicate_active_request_id_is_rejected():
+    state = BatchState()
+    state.apply(FakeOutput(scheduled_new_reqs=[FakeNewReq("a", ([1],), 0)]))
+
+    with pytest.raises(ValueError, match="already active"):
+        state.apply(FakeOutput(scheduled_new_reqs=[FakeNewReq("a", ([2],), 0)]))
+
+
 def test_pages_for_step_follows_the_scheduled_token_order():
     state = BatchState()
     state.apply(
@@ -155,3 +178,64 @@ def test_ragged_cached_request_data_is_rejected():
                 )
             )
         )
+
+
+# --- prefill-first ordering for the attention split ----------------------
+
+
+def _scheduler_output(scheduled):
+    return SimpleNamespace(
+        finished_req_ids=(),
+        scheduled_new_reqs=(),
+        scheduled_cached_reqs=None,
+        num_scheduled_tokens=scheduled,
+    )
+
+
+def _state_with(ids):
+    state = BatchState()
+    for request_id in ids:
+        state.apply(
+            SimpleNamespace(
+                finished_req_ids=(),
+                scheduled_new_reqs=(
+                    SimpleNamespace(
+                        req_id=request_id,
+                        block_ids=([1, 2, 3],),
+                        num_computed_tokens=16,
+                    ),
+                ),
+                scheduled_cached_reqs=None,
+            )
+        )
+    return state
+
+
+def test_chunk_prefilling_requests_come_first():
+    # Attention slices the batch at a fixed row to send the single-token rows to
+    # the decode kernel, so the two kinds have to be contiguous.
+    state = _state_with(["a", "b", "c", "d"])
+    pages = state.pages_for_step(
+        _scheduler_output({"a": 1, "b": 40, "c": 1, "d": 7})
+    )
+
+    assert [p.request_id for p in pages] == ["b", "d", "a", "c"]
+    assert [p.num_scheduled_tokens for p in pages] == [40, 7, 1, 1]
+
+
+def test_ordering_is_stable_within_each_half():
+    # vLLM's own order carries information -- the sampled rows are attributed by
+    # it -- so only the prefill/decode partition may reorder anything.
+    state = _state_with(["a", "b", "c", "d", "e"])
+    pages = state.pages_for_step(
+        _scheduler_output({"a": 1, "b": 5, "c": 1, "d": 5, "e": 1})
+    )
+
+    assert [p.request_id for p in pages] == ["b", "d", "a", "c", "e"]
+
+
+def test_an_all_decode_step_is_left_alone():
+    state = _state_with(["a", "b", "c"])
+    pages = state.pages_for_step(_scheduler_output({"a": 1, "b": 1, "c": 1}))
+
+    assert [p.request_id for p in pages] == ["a", "b", "c"]

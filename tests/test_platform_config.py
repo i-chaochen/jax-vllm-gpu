@@ -9,7 +9,11 @@ import pytest
 
 pytest.importorskip("vllm", reason="vLLM is supplied by the runtime image")
 
-from jax_vllm_plugin.platform import DEFAULT_TOKENS_PER_PAGE, JaxPlatform
+from jax_vllm_plugin.platform import (
+    ASYNC_SCHEDULING_ENV_VAR,
+    DEFAULT_TOKENS_PER_PAGE,
+    JaxPlatform,
+)
 
 
 def make_config(**kwargs):
@@ -21,13 +25,27 @@ def make_config(**kwargs):
     cache = SimpleNamespace(
         user_specified_block_size=kwargs.pop("user_specified_block_size", False),
         block_size=kwargs.pop("block_size", 0),
+        cache_dtype=kwargs.pop("cache_dtype", "auto"),
     )
-    model = SimpleNamespace(max_model_len=kwargs.pop("max_model_len", 2048))
+    scheduler = SimpleNamespace(
+        async_scheduling=kwargs.pop("async_scheduling", True),
+    )
+    model = SimpleNamespace(
+        max_model_len=kwargs.pop("max_model_len", 2048),
+        quantization=kwargs.pop("quantization", None),
+    )
+    load_format = kwargs.pop("load_format", None)
     return SimpleNamespace(
         parallel_config=parallel,
         cache_config=cache,
+        scheduler_config=scheduler,
         model_config=model,
         additional_config=kwargs.pop("additional_config", {}),
+        speculative_config=kwargs.pop("speculative_config", None),
+        lora_config=kwargs.pop("lora_config", None),
+        load_config=(
+            None if load_format is None else SimpleNamespace(load_format=load_format)
+        ),
     )
 
 
@@ -47,11 +65,27 @@ def test_a_single_pipeline_stage_uses_the_uniproc_executor():
     assert config.parallel_config.distributed_executor_backend == "uni"
 
 
-def test_pipeline_parallelism_is_left_alone():
-    config = make_config(pipeline_parallel_size=2)
+def test_async_scheduling_is_disabled_by_default(monkeypatch):
+    monkeypatch.delenv(ASYNC_SCHEDULING_ENV_VAR, raising=False)
+    config = make_config(async_scheduling=True)
     JaxPlatform.check_and_update_config(config)
 
-    assert config.parallel_config.distributed_executor_backend is None
+    assert config.scheduler_config.async_scheduling is False
+
+
+def test_async_scheduling_can_be_enabled_explicitly(monkeypatch):
+    monkeypatch.setenv(ASYNC_SCHEDULING_ENV_VAR, "1")
+    config = make_config(async_scheduling=True)
+    JaxPlatform.check_and_update_config(config)
+
+    assert config.scheduler_config.async_scheduling is True
+
+
+def test_pipeline_parallelism_is_rejected():
+    config = make_config(pipeline_parallel_size=2)
+
+    with pytest.raises(ValueError, match="pipeline parallelism is unsupported"):
+        JaxPlatform.check_and_update_config(config)
 
 
 def test_block_size_defaults_to_the_pool_page_size():
@@ -66,6 +100,13 @@ def test_an_explicit_block_size_is_respected():
     JaxPlatform.check_and_update_config(config)
 
     assert config.cache_config.block_size == 32
+
+
+def test_an_unsupported_block_size_is_rejected():
+    config = make_config(user_specified_block_size=True, block_size=64)
+
+    with pytest.raises(ValueError, match="block sizes 16 and 32"):
+        JaxPlatform.check_and_update_config(config)
 
 
 def test_maxtext_is_pointed_at_gpu_paged_attention():
@@ -106,25 +147,67 @@ def test_maxtext_gets_a_block_count_large_enough_for_one_full_request():
     assert config.additional_config["maxtext_config"]["paged_num_blocks"] == 64
 
 
-def test_an_explicit_attention_choice_is_not_overridden():
+def test_an_incompatible_attention_choice_is_rejected():
     config = make_config(additional_config={"maxtext_config": {"attention": "dot_product"}})
-    JaxPlatform.check_and_update_config(config)
 
-    assert config.additional_config["maxtext_config"]["attention"] == "dot_product"
-
-
-def test_paged_settings_are_not_forced_on_a_different_attention():
-    """A caller who chose another attention deliberately should not find paged
-    pool geometry injected alongside it."""
-    config = make_config(additional_config={"maxtext_config": {"attention": "dot_product"}})
-    JaxPlatform.check_and_update_config(config)
-
-    assert "paged_num_blocks" not in config.additional_config["maxtext_config"]
+    with pytest.raises(ValueError, match="requires MaxText attention='gpu_paged'"):
+        JaxPlatform.check_and_update_config(config)
 
 
-def test_a_config_without_additional_config_does_not_crash():
+def test_mismatched_page_sizes_are_rejected():
+    config = make_config(
+        block_size=16,
+        user_specified_block_size=True,
+        additional_config={"maxtext_config": {"paged_page_size": 32}},
+    )
+
+    with pytest.raises(ValueError, match="must match vLLM block_size"):
+        JaxPlatform.check_and_update_config(config)
+
+
+def test_a_config_without_additional_config_gets_the_required_settings():
     config = make_config()
     config.additional_config = None
     JaxPlatform.check_and_update_config(config)
 
-    assert config.parallel_config.worker_cls
+    assert config.additional_config["maxtext_config"]["attention"] == "gpu_paged"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("speculative_config", object(), "speculative decoding"),
+        ("lora_config", object(), "LoRA"),
+        ("quantization", "fp8", "quantization"),
+        ("cache_dtype", "fp8", "KV cache dtype"),
+    ],
+)
+def test_unsupported_engine_features_fail_at_startup(field, value, message):
+    config = make_config(**{field: value})
+
+    with pytest.raises(ValueError, match=message):
+        JaxPlatform.check_and_update_config(config)
+
+
+def test_a_checkpoint_is_required_for_a_non_dummy_load():
+    config = make_config(load_format="auto")
+
+    with pytest.raises(ValueError, match="refusing to serve random weights"):
+        JaxPlatform.check_and_update_config(config)
+
+
+def test_dummy_load_explicitly_allows_random_weights():
+    config = make_config(load_format="dummy")
+
+    JaxPlatform.check_and_update_config(config)
+
+
+def test_a_maxtext_checkpoint_satisfies_the_load_contract():
+    config = make_config(
+        load_format="auto",
+        additional_config={
+            "maxtext_config": {"load_parameters_path": "/model/checkpoint"}
+        },
+    )
+
+    JaxPlatform.check_and_update_config(config)

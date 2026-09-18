@@ -62,8 +62,8 @@ second is what makes co-location pay rather than merely look tidy.
 ## What lives here, and what deliberately does not
 
 **Here:** the `Platform` implementation, the worker and JAX model runner, the
-attention backend selection, physical KV pool allocation, bucketing and
-precompile, and the KV connector for disaggregation and host offload.
+attention backend selection, physical KV pool allocation, bucketing, and the
+registration point for a future KV connector.
 
 **Not here:**
 
@@ -94,26 +94,43 @@ pytest
 
 ## Status
 
-Early scaffold, and **nothing in it has been executed yet.** Discovery is written
-and covered by tests; execution is not. `JaxWorker` and `get_attn_backend_cls`
-raise `NotImplementedError` on purpose, so the plugin is discoverable now and
-honest about being unfinished. Note that `test_the_entry_points_are_declared_in_installed_metadata`
-will fail until `pip install -e .` has run, by design — `entry_points` only sees
-the plugin once the distribution is installed.
+The TP=1 full-engine path is operational. vLLM owns the endpoint, scheduler,
+request lifecycle, and KV block allocation; one `JaxWorker` drives the MaxText
+model and JAX-AITER paged KV kernels through a JAX mesh. The test suite covers
+platform discovery, worker configuration, page translation and reuse, shape
+selection, sampling, and runner telemetry.
 
-Two decisions are recorded in code comments rather than settled:
+Current limitations are explicit:
 
-- **`device_type = "cuda"`.** Torch reuses the CUDA device type for ROCm rather
-  than adding one, so anything in vLLM constructing `torch.device(device_type)`
-  needs `"cuda"` here even though this platform does no torch compute. Revisit if
-  a torch-free image makes that construction fail rather than merely go unused.
+- Asynchronous scheduling is disabled because sampling still occurs inside
+  `execute_model`; implementing vLLM's separate `sample_tokens` contract also
+  requires keeping sampled-token dependencies on device.
+- Sampling currently supports greedy, temperature, top-p, and top-k only.
+  Requests using penalties, per-request seeds, min-p/min-tokens, logprobs,
+  structured output, or logits constraints are rejected before scheduling.
+- vLLM pipeline parallelism, speculative decoding, LoRA, quantization, and an
+  explicitly selected KV-cache dtype are rejected at startup. JAX tensor
+  parallelism is driven through one worker and supports page sizes 16 and 32.
+- A MaxText `load_parameters_path` is required for normal serving.
+  `load_format="dummy"` is the explicit opt-in for random-weight tests.
+- The MaxText model owns attention internally, so
+  `JaxPlatform.get_attn_backend_cls` is not reached by the working model path
+  and remains unsupported for models that instantiate vLLM `Attention` layers.
+- Only one uniform full-attention KV cache group is supported.
+- Disaggregated serving and host offload are not implemented; constructing
+  `JaxConnector` raises `NotImplementedError`.
+- Shape programs compile lazily. A production image should provide a persistent
+  compilation cache or workload-appropriate warmup.
+
+One design decision remains open:
+
 - **How the connector reaches MORI.** vLLM already ships a MoRI-IO connector at
   `vllm/distributed/kv_transfer/kv_connector/v1/moriio/`, but it is thoroughly
   torch-bound (`register_kv_caches(dict[str, torch.Tensor])`, then `.data_ptr()`
   and `.element_size()`), so it cannot be handed XLA-owned pool arrays. It is a
-  protocol reference, not a dependency. Whether our connector goes through the
-  host-side `mori.io` API as it does, or through the XLA FFI transfer op over
-  MORI's device-side one-sided puts, is still open.
+  protocol reference, not a dependency. Whether our future connector goes
+  through the host-side `mori.io` API or through an XLA FFI transfer op over
+  MORI's device-side one-sided puts is still open.
 
 ## Environment variables
 

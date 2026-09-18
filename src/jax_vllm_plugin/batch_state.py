@@ -69,7 +69,14 @@ class BatchState:
 
     def apply(self, scheduler_output: Any) -> None:
         """Fold one `SchedulerOutput` into the accumulated state."""
+        # Retire before admitting. vLLM request IDs are caller-controlled and
+        # may be reused immediately in the same scheduler output.
+        for finished in getattr(scheduler_output, "finished_req_ids", ()) or ():
+            self._requests.pop(finished, None)
+
         for new in getattr(scheduler_output, "scheduled_new_reqs", ()) or ():
+            if new.req_id in self._requests:
+                raise ValueError(f"request {new.req_id!r} is already active")
             self._requests[new.req_id] = RequestState(
                 request_id=new.req_id,
                 block_ids=_single_group(new.block_ids, new.req_id),
@@ -79,9 +86,6 @@ class BatchState:
         cached = getattr(scheduler_output, "scheduled_cached_reqs", None)
         if cached is not None:
             self._apply_cached(cached)
-
-        for finished in getattr(scheduler_output, "finished_req_ids", ()) or ():
-            self._requests.pop(finished, None)
 
     def _apply_cached(self, cached: Any) -> None:
         req_ids = list(cached.req_ids)
@@ -116,7 +120,16 @@ class BatchState:
         """Assemble this step's per-request pages, in a stable order.
 
         Ordering follows `num_scheduled_tokens`, which is what vLLM iterates, so
-        the rows of the page table and of the sampled output agree.
+        the rows of the page table and of the sampled output agree, then puts the
+        chunk-prefilling requests first.
+
+        Prefill-first is what lets attention run the single-token rows on the
+        decode kernel: the split slices the batch at a static row, so the two
+        kinds have to be contiguous. The sort is *stable*, so within each group
+        vLLM's own order is preserved, and every consumer downstream -- the page
+        table, the token packing, `sample_rows`, and the `req_ids` /
+        `req_id_to_index` the output is attributed by -- derives its order from
+        this one list rather than from `scheduler_output`.
         """
         scheduled = getattr(scheduler_output, "num_scheduled_tokens", {}) or {}
         pages: list[RequestPages] = []
@@ -134,4 +147,5 @@ class BatchState:
                     num_scheduled_tokens=num_tokens,
                 )
             )
+        pages.sort(key=lambda request: request.num_scheduled_tokens == 1)
         return pages
