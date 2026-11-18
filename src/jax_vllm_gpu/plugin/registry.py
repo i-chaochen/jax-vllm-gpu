@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Model registry for this platform.
 
-`tpu_inference` plays this role for the TPU plugin, and MaxText's adapter used to
-import its `register_model` directly, which is what tied the adapter to TPU. The
-adapter now takes the registry as an argument, so this module supplies ours.
+`tpu_inference` plays this role for the TPU plugin. MaxText models are served
+through `jax_vllm_gpu.models.adapters.maxtext_vllm`, which registers here.
 
 The dependency runs plugin -> maxtext, never the reverse: MaxText must not import
 this package.
@@ -48,11 +47,13 @@ def registered_models() -> tuple[str, ...]:
 
 
 def register_maxtext(registry: Callable[[str, Any], None] | None = None) -> None:
-    """Register MaxText's adapter against this platform's registry.
+    """Register the MaxText adapter against this platform's registry, and bind
+    MaxText's paged-attention hook to this repository's kernels.
 
     Imported lazily: MaxText pulls in JAX and a good deal of config, and a
     deployment that never serves a MaxText model should not pay for it.
     """
-    from maxtext.integration.vllm.maxtext_vllm_adapter import register as register_adapter
+    from jax_vllm_gpu.models.adapters import maxtext, maxtext_vllm
 
-    register_adapter(register_model=registry or register_model)
+    maxtext.install()
+    maxtext_vllm.register(registry or register_model)
