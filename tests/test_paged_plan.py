@@ -13,7 +13,7 @@ from maxtext.inference.kv_execution.bucketing import StepShape
 from maxtext.inference.kv_execution.step_view import build_step_view
 from maxtext.layers.gpu_paged_attention import PagedPlan, build_plan
 
-from jax_vllm_plugin import paged_plan
+from jax_vllm_gpu.plugin import paged_plan
 
 
 def a_step_view(tokens_per_page=16):

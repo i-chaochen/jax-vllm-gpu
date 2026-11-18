@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip("maxtext.inference.kv_common", reason="MaxText must be importable")
 
-from jax_vllm_plugin.batch_state import BatchState
+from jax_vllm_gpu.plugin.batch_state import BatchState
 
 
 @dataclass

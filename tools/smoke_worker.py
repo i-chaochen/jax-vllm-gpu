@@ -147,7 +147,7 @@ def main() -> int:
     log.info("Platform resolved to %s.", type(current_platform).__name__)
 
     config = build_config(args)
-    from jax_vllm_plugin.worker import JaxWorker
+    from jax_vllm_gpu.plugin.worker import JaxWorker
 
     worker = JaxWorker(
         vllm_config=config,

@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-import jax_vllm_plugin
+import jax_vllm_gpu.plugin
 
 # The page-ownership half of MaxText's native control plane. `kv_execution` is
 # deliberately not here: its pool factory, bucketing, step view and pool ops are
@@ -36,7 +36,7 @@ def plugin_modules():
     `__init__.py` -- and a rule about what may not be imported is worth nothing
     if it does not cover every file that can import.
     """
-    root = Path(jax_vllm_plugin.__file__).parent
+    root = Path(jax_vllm_gpu.plugin.__file__).parent
     return sorted(root.rglob("*.py"))
 
 
@@ -96,7 +96,7 @@ def test_the_scrub_contract_still_has_an_answerer():
     """
     from maxtext.inference.kv_control.protocols import KvControlPlane
 
-    from jax_vllm_plugin.kv_reuse import PageReuseTracker
+    from jax_vllm_gpu.plugin.kv_reuse import PageReuseTracker
 
     scrub_contract = ("pending_scrub", "confirm_scrubbed")
     for name in scrub_contract:

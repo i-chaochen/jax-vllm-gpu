@@ -10,9 +10,9 @@ pytest.importorskip("maxtext.inference.kv_common", reason="MaxText must be impor
 
 from maxtext.inference.kv_execution.bucketing import StepShapePlanner
 
-from jax_vllm_plugin.kv_reuse import PageReuseTracker
-from jax_vllm_plugin.page_table import RequestPages
-from jax_vllm_plugin.step import prepare_step
+from jax_vllm_gpu.plugin.kv_reuse import PageReuseTracker
+from jax_vllm_gpu.plugin.page_table import RequestPages
+from jax_vllm_gpu.plugin.step import prepare_step
 
 PAGE = 16
 POOL = 64

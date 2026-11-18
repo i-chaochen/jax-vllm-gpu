@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-PLATFORM_QUALNAME = "jax_vllm_plugin.platform.JaxPlatform"
+PLATFORM_QUALNAME = "jax_vllm_gpu.plugin.platform.JaxPlatform"
 
 # Set to "1" to force activation or "0" to force the plugin off. Without this,
 # a probe failure is indistinguishable from the wheel not being installed,
@@ -125,7 +125,7 @@ class JaxPlatform(Platform):
         torch_shims.install()
 
         parallel_config = vllm_config.parallel_config
-        parallel_config.worker_cls = "jax_vllm_plugin.worker.JaxWorker"
+        parallel_config.worker_cls = "jax_vllm_gpu.plugin.worker.JaxWorker"
 
         # One vLLM worker drives every GPU through a JAX mesh, so vLLM must not
         # fan out into a process per device. tensor_parallel_size is consumed as

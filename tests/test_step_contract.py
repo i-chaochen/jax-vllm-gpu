@@ -35,9 +35,9 @@ from maxtext.inference.kv_common import KvStorageLayoutV1
 from maxtext.inference.kv_execution.bucketing import StepShapePlanner
 from maxtext.inference.kv_execution.pool_factory import allocate_pool
 
-from jax_vllm_plugin import pool as pool_module
-from jax_vllm_plugin.kv_reuse import PageReuseTracker
-from jax_vllm_plugin.model_runner import JaxModelRunner
+from jax_vllm_gpu.plugin import pool as pool_module
+from jax_vllm_gpu.plugin.kv_reuse import PageReuseTracker
+from jax_vllm_gpu.plugin.model_runner import JaxModelRunner
 
 PAGE = 16
 NUM_PAGES = 32
@@ -167,7 +167,7 @@ def test_structured_output_is_refused_rather_than_ignored():
 def test_the_worker_delegates_sampling_rather_than_raising():
     """The original worker raised here, on the theory that the engine would
     never call it. It does."""
-    from jax_vllm_plugin.worker import JaxWorker
+    from jax_vllm_gpu.plugin.worker import JaxWorker
 
     runner = a_runner()
     worker = JaxWorker.__new__(JaxWorker)

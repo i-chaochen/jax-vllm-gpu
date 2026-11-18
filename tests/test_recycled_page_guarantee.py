@@ -33,10 +33,10 @@ from maxtext.inference.kv_execution.bucketing import StepShape
 from maxtext.inference.kv_execution.pool_factory import allocate_pool
 from maxtext.inference.kv_execution.pool_ops import POISON_SENTINEL, poison_pages
 
-from jax_vllm_plugin import pool as pool_module
-from jax_vllm_plugin.kv_reuse import DirtyPageError, PageReuseTracker
-from jax_vllm_plugin.page_table import RequestPages, build_page_table
-from jax_vllm_plugin.step import prepare_step
+from jax_vllm_gpu.plugin import pool as pool_module
+from jax_vllm_gpu.plugin.kv_reuse import DirtyPageError, PageReuseTracker
+from jax_vllm_gpu.plugin.page_table import RequestPages, build_page_table
+from jax_vllm_gpu.plugin.step import prepare_step
 
 PAGE = 16
 NUM_PAGES = 8

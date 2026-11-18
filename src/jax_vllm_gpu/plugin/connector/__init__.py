@@ -14,7 +14,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 CONNECTOR_NAME = "JaxConnector"
-_CONNECTOR_MODULE = "jax_vllm_plugin.connector.connector"
+_CONNECTOR_MODULE = "jax_vllm_gpu.plugin.connector.connector"
 _CONNECTOR_CLASS = "JaxConnector"
 
 

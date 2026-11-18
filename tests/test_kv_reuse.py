@@ -13,8 +13,8 @@ import pytest
 
 pytest.importorskip("maxtext.inference.kv_common", reason="MaxText must be importable")
 
-from jax_vllm_plugin.kv_reuse import DirtyPageError, PageReuseTracker
-from jax_vllm_plugin.page_table import RequestPages
+from jax_vllm_gpu.plugin.kv_reuse import DirtyPageError, PageReuseTracker
+from jax_vllm_gpu.plugin.page_table import RequestPages
 
 PAGE = 16
 POOL = 64

@@ -3,9 +3,9 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "jax-vllm-plugin"
+name = "jax-vllm-gpu"
 version = "0.0.1.dev0"
-description = "vLLM platform plugin and KV connector for JAX on AMD GPUs"
+description = "JAX inference on AMD GPUs, served through vLLM"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -28,10 +28,10 @@ test = ["pytest"]
 # The left-hand names are what VLLM_PLUGINS allowlists and what appears in
 # vLLM's "Platform plugin <name> is activated" log line.
 [project.entry-points."vllm.platform_plugins"]
-jax_vllm_plugin = "jax_vllm_plugin.platform:register"
+jax_vllm_gpu = "jax_vllm_gpu.plugin.platform:register"
 
 [project.entry-points."vllm.general_plugins"]
-jax_vllm_plugin_kv_connector = "jax_vllm_plugin.connector:register"
+jax_vllm_gpu_kv_connector = "jax_vllm_gpu.plugin.connector:register"
 
 [tool.setuptools.packages.find]
 where = ["src"]
