@@ -177,7 +177,7 @@ def main() -> int:
   args = parser.parse_args()
 
   # pylint: disable=import-outside-toplevel
-  from maxtext.inference.maxengine import maxengine
+  from jax_vllm_gpu.engine.paged_engine import PagedEngine
 
   devices = jax.devices()[:1]
   print(f"device: {devices[0].device_kind}  ({len(jax.devices())} visible, using 1)")
@@ -187,7 +187,7 @@ def main() -> int:
   for arm in arms:
     cfg = build_config(arm, args)
     params_state = build_params(cfg, devices)
-    engine = maxengine.MaxEngine(cfg, devices)
+    engine = PagedEngine(cfg, devices)
     params = engine.load_params(params=params_state)
 
     # A factory rather than one list: each repeat needs requests with no

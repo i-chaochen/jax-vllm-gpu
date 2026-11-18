@@ -48,6 +48,7 @@ from maxtext.utils import maxtext_utils, model_creation_utils
 
 try:
   from maxtext.inference.maxengine import maxengine
+  from jax_vllm_gpu.engine.paged_engine import PagedEngine
 except ModuleNotFoundError as _exc:  # pragma: no cover - environment dependent
   # `maxengine` reaches JetStream for its engine base class and tokenizer types.
   # Naming both remedies matters: installing google-jetstream pulls TensorFlow and
@@ -241,7 +242,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
 
   def _dense_rollout(self, cfg, params_state, steps=STEPS):
     """Greedy decode on the dense two-region cache, through MaxEngine."""
-    engine = maxengine.MaxEngine(cfg, _devices())
+    engine = PagedEngine(cfg, _devices())
     params = engine.load_params(params=params_state)
     padded = jnp.asarray(
         PROMPT + [0] * (cfg.max_prefill_predict_length - len(PROMPT)), dtype=jnp.int32
@@ -258,7 +259,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
 
   def _paged_rollout(self, cfg, params_state, steps=STEPS):
     """Greedy decode on the page pool, through the sibling entry points."""
-    engine = maxengine.MaxEngine(cfg, _devices())
+    engine = PagedEngine(cfg, _devices())
     params = engine.load_params(params=params_state)
     runtime = engine.init_paged_runtime()
 
@@ -389,7 +390,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
     params_state = self._build_params(cfg)
     reference = self._paged_rollout(cfg, params_state, steps=STEPS)
 
-    engine = maxengine.MaxEngine(cfg, _devices())
+    engine = PagedEngine(cfg, _devices())
     params = engine.load_params(params=params_state)
     runtime = engine.init_paged_runtime()
     driver = PagedDriver(
@@ -445,7 +446,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
 
     separate = []
     for index, prompt in enumerate((first, second)):
-      engine = maxengine.MaxEngine(cfg, _devices())
+      engine = PagedEngine(cfg, _devices())
       params = engine.load_params(params=params_state)
       engine.init_paged_runtime()
       padded = jnp.asarray(
@@ -460,7 +461,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
 
     # Now both in one packed step, driven at the seam rather than through the
     # single-request entry point.
-    engine = maxengine.MaxEngine(cfg, _devices())
+    engine = PagedEngine(cfg, _devices())
     params = engine.load_params(params=params_state)
     # Two rows explicitly: `init_paged_runtime` defaults to the dense batch width,
     # which is one here, and a one-row page map cannot hold a two-request batch.
@@ -496,13 +497,12 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
     for handle in handles:
       engine.release(handle)
 
-  def test_offline_engine_selects_the_paged_worker_and_agrees_with_the_engine(self):
-    """`OfflineEngine.batch_inference` is the production entry point, so wire it.
+  def test_the_offline_worker_agrees_with_the_engine(self):
+    """`PagedInferenceWorker.run_inference` is the offline entry point, so check it.
 
-    Until the step seam existed there was no paged worker to select, and this is
-    the check that selecting one produces the same answer. Several prompts at
-    once, so it exercises the continuous batching that a single-request rollout
-    cannot: requests at different positions sharing one pool.
+    Several prompts at once, so it exercises the continuous batching that a
+    single-request rollout cannot: requests at different positions sharing one
+    pool.
 
     The reference is the engine's own paged entry points rather than the dense
     worker, and that is a container limitation rather than a choice -- the dense
@@ -516,12 +516,14 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
 
     from maxtext.inference import offline_engine
 
+    from jax_vllm_gpu.engine.offline import PagedInferenceWorker
+
     prompts = [list(range(3, 15)), list(range(40, 48)), list(range(90, 106))]
     cfg = _config(**_PAGED, return_log_prob=True)
 
     # Reference: one request at a time through the entry points.
     reference = {}
-    engine = maxengine.MaxEngine(cfg, _devices())
+    engine = PagedEngine(cfg, _devices())
     params_state = self._build_params(cfg)
     params = engine.load_params(params=params_state)
     engine.init_paged_runtime(max_requests=4, max_batched_tokens=cfg.max_prefill_predict_length)
@@ -545,18 +547,19 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
       engine.release(handle)
       reference[f"p{index}"] = tokens
 
-    # Through OfflineEngine, which must pick the paged worker off the attention
-    # setting. `eos_ids` is supplied so no tokenizer is needed -- these prompts are
-    # token ids, and a tokenizer would need JetStream.
-    offline = offline_engine.OfflineEngine(
-        config=cfg, params=params_state, tokenizer=object(), eos_ids=[-1]
+    # Through the offline worker, with the lengths OfflineEngine would give it.
+    # `eos_ids` is supplied so no tokenizer is needed -- these prompts are token
+    # ids, and a tokenizer would need JetStream.
+    worker = PagedInferenceWorker(
+        config=cfg,
+        params=params_state,
+        devices=_devices(),
+        tokenizer=object(),
+        eos_ids=[-1],
+        max_decode_length=budget,
+        max_batched_tokens=cfg.max_prefill_predict_length,
     )
-    self.assertEqual(
-        type(offline.worker).__name__,
-        "PagedInferenceWorker",
-        "attention='gpu_paged' must select the paged worker",
-    )
-    outputs = offline.batch_inference(
+    outputs = worker.run_inference(
         [
             offline_engine.InputData(id=f"p{i}", tokens=np.asarray(p, np.int32), true_length=len(p))
             for i, p in enumerate(prompts)
@@ -568,8 +571,8 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
       expected = reference[out.index]
       actual = np.asarray(out.token_ids).tolist()
       self._assert_same_tokens(expected[: len(actual)], actual[: len(expected)], f"{out.index}")
-      # Logprobs are part of the contract and `_validate_config` insists on them,
-      # so an empty array would satisfy the token check and still be wrong.
+      # Logprobs are part of the contract, so an empty array would satisfy the
+      # token check and still be wrong.
       self.assertEqual(
           np.asarray(out.logprobs).size,
           len(actual),
@@ -580,7 +583,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
   def test_the_paged_path_allocates_no_dense_cache(self):
     """A dense cache alongside the pool would waste gigabytes at real sizes."""
     cfg = _config(**_PAGED)
-    engine = maxengine.MaxEngine(cfg, _devices())
+    engine = PagedEngine(cfg, _devices())
     params = engine.load_params(params=self._build_params(cfg))
     runtime = engine.init_paged_runtime()
 
@@ -604,7 +607,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
     step would show up as a rising live-buffer count.
     """
     cfg = _config(**_PAGED)
-    engine = maxengine.MaxEngine(cfg, _devices())
+    engine = PagedEngine(cfg, _devices())
     params = engine.load_params(params=self._build_params(cfg))
     runtime = engine.init_paged_runtime()
 

@@ -1,9 +1,9 @@
-"""Continuous batching for `OfflineEngine` on the paged KV pool.
+"""Offline batch inference with continuous batching on the paged KV pool.
 
-The paged sibling of `offline_engine.InferenceWorker`, selected when
-`attention="gpu_paged"`. It presents the same contract -- `run_inference(data,
-rng)` returning one `CompletionOutput` per input -- and shares nothing else,
-because the two differ in the thing that organises them.
+The paged counterpart of MaxText's `offline_engine.InferenceWorker`. It presents
+the same contract -- `run_inference(data, rng)` returning one `CompletionOutput`
+per input -- and shares nothing else, because the two differ in the thing that
+organises them.
 
 **Why this is a separate worker rather than a flag on the dense one.** The dense
 worker is built around a fixed decode *slot* per request: `empty_decode_slots`,
@@ -45,9 +45,10 @@ import numpy as np
 import jax
 
 from maxtext.inference import inference_utils
-from jax_vllm_gpu.kv.execution.driver import PagedDriver, PagedRequest
-from maxtext.inference.maxengine.maxengine import MaxEngine
 from maxtext.utils import max_logging
+
+from jax_vllm_gpu.engine.paged_engine import PagedEngine
+from jax_vllm_gpu.kv.execution.driver import PagedDriver, PagedRequest
 
 
 class PagedInferenceWorker:
@@ -77,7 +78,7 @@ class PagedInferenceWorker:
     self.rng = jax.random.PRNGKey(0) if rng is None else rng
     self.debug = debug
 
-    self.engine = MaxEngine(self.config, self.devices)
+    self.engine = PagedEngine(self.config, self.devices)
     self.params = self.engine.load_params(params=params, rng=self.rng)
     if self.tokenizer is None:
       self.tokenizer = self._build_tokenizer()
@@ -115,7 +116,7 @@ class PagedInferenceWorker:
        `tokenizers` package. No JetStream, and no torch, which matters because
        `transformers` imports torch when it finds it and a second HIP runtime
        aborts RCCL clique setup above one device.
-    3. `MaxEngine.build_tokenizer`, the JetStream route, only if asked for a
+    3. `build_tokenizer` inherited from `MaxEngine`, the JetStream route, only if asked for a
        tokenizer type this cannot serve. It raises a clear message under
        `DECOUPLE_GCLOUD=TRUE`, which is the honest outcome: that path genuinely
        needs a package that was archived in February 2026.

@@ -160,10 +160,10 @@ def serve(engine, params, requests, *, max_batch: int, measure: bool):
 
 def run_arm(args, devices, prefix_cache: bool):
   # pylint: disable=import-outside-toplevel
-  from maxtext.inference.maxengine import maxengine
+  from jax_vllm_gpu.engine.paged_engine import PagedEngine
 
   cfg = build_config(args, prefix_cache)
-  engine = maxengine.MaxEngine(cfg, devices)
+  engine = PagedEngine(cfg, devices)
   params = engine.load_params(params=build_params(cfg, devices))
   engine.init_paged_runtime(max_requests=args.max_batch, max_batched_tokens=args.max_prompt)
 

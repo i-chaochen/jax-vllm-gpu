@@ -54,6 +54,7 @@ from maxtext.utils import maxtext_utils, model_creation_utils
 
 try:
   from maxtext.inference.maxengine import maxengine
+  from jax_vllm_gpu.engine.paged_engine import PagedEngine
 except ModuleNotFoundError as _exc:  # pragma: no cover - environment dependent
   pytest.skip(
       f"MaxEngine needs JetStream ({_exc}). Install google-jetstream under a constraints file pinning "
@@ -144,7 +145,7 @@ class GpuPagedPrefixCacheTest(parameterized.TestCase):
     _, self.params_state, _ = nnx.split(model, nnx.Param, ...)
 
   def _engine(self):
-    engine = maxengine.MaxEngine(self.cfg, _devices())
+    engine = PagedEngine(self.cfg, _devices())
     params = engine.load_params(params=self.params_state)
     runtime = engine.init_paged_runtime()
     return engine, params, runtime
