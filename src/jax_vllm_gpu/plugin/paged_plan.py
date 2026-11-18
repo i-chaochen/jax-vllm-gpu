@@ -23,7 +23,7 @@ from __future__ import annotations
 import dataclasses
 from typing import Any
 
-from maxtext.layers.gpu_paged_attention import PagedPlan
+from jax_vllm_gpu.ops.paged_attention import PagedPlan
 
 
 @dataclasses.dataclass(frozen=True)

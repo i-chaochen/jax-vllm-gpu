@@ -24,7 +24,7 @@ from typing import Any
 
 import numpy as np
 
-from maxtext.inference.kv_common import KvStorageLayoutV1
+from jax_vllm_gpu.kv.common import KvStorageLayoutV1
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +36,8 @@ def allocate(layout: KvStorageLayoutV1, mesh: Any | None = None) -> Any:
     0 is a null block promised to read as zero, and the recycled-page tracker
     treats a never-written page as clean, which is only true if it starts empty.
     """
-    from maxtext.inference.kv_execution.layout_builder import kv_pool_sharding
-    from maxtext.inference.kv_execution.pool_factory import allocate_pool
+    from jax_vllm_gpu.kv.execution.layout_builder import kv_pool_sharding
+    from jax_vllm_gpu.kv.execution.pool_factory import allocate_pool
 
     sharding = kv_pool_sharding(mesh, layout)
     pool = allocate_pool(layout, sharding=sharding)
@@ -74,7 +74,7 @@ def make_scrub_fn(pool: Any):
     `prepare_step` deliberately knows nothing about device memory; the scrub is
     injected precisely so the host-side ordering stays testable without a GPU.
     """
-    from maxtext.inference.kv_execution.pool_ops import scrub_pages_all_layers
+    from jax_vllm_gpu.kv.execution.pool_ops import scrub_pages_all_layers
 
     def scrub(page_ids: np.ndarray) -> None:
         if page_ids.size == 0:

@@ -38,11 +38,11 @@ from typing import Sequence
 
 import numpy as np
 
-from maxtext.inference.kv_control import NativeKvControlPlane, RequestDescriptor, RequestHandle
-from maxtext.inference.kv_execution.bucketing import StepShape, StepShapePlanner
-from maxtext.inference.kv_execution.pool_factory import PagedKvPool
-from maxtext.inference.kv_execution.pool_ops import poison_pages, scrub_pages_all_layers
-from maxtext.inference.kv_execution.step_view import StepView, build_step_view
+from jax_vllm_gpu.kv.control import NativeKvControlPlane, RequestDescriptor, RequestHandle
+from jax_vllm_gpu.kv.execution.bucketing import StepShape, StepShapePlanner
+from jax_vllm_gpu.kv.execution.pool_factory import PagedKvPool
+from jax_vllm_gpu.kv.execution.pool_ops import poison_pages, scrub_pages_all_layers
+from jax_vllm_gpu.kv.execution.step_view import StepView, build_step_view
 
 
 class PagedRuntime:

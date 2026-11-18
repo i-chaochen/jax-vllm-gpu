@@ -37,9 +37,9 @@ from typing import Sequence
 
 import numpy as np
 
-from maxtext.inference.kv_common import KvStorageLayoutV1
-from maxtext.inference.kv_control.logical_block import pages_for_tokens
-from maxtext.inference.kv_control.request import RequestDescriptor, RequestHandle, RequestState
+from jax_vllm_gpu.kv.common import KvStorageLayoutV1
+from jax_vllm_gpu.kv.control.logical_block import pages_for_tokens
+from jax_vllm_gpu.kv.control.request import RequestDescriptor, RequestHandle, RequestState
 
 
 class StaleRequestHandleError(RuntimeError):

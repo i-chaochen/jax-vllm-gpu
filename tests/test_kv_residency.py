@@ -26,8 +26,8 @@ import unittest
 
 import numpy as np
 
-from maxtext.inference.kv_common import KvStorageLayoutV1
-from maxtext.inference.kv_control import (
+from jax_vllm_gpu.kv.common import KvStorageLayoutV1
+from jax_vllm_gpu.kv.control import (
     NativeKvControlPlane,
     NotResidentError,
     PageResidency,

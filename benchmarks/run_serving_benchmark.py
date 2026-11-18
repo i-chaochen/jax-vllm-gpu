@@ -41,7 +41,7 @@ from flax.linen import partitioning as nn_partitioning
 
 from maxtext.common.common_types import MODEL_MODE_PREFILL
 from maxtext.configs import pyconfig
-from maxtext.inference.kv_execution import benchmark
+from jax_vllm_gpu.kv.execution import benchmark
 from maxtext.utils import maxtext_utils, model_creation_utils
 
 # Small enough to run in a couple of minutes, large enough that the KV footprint

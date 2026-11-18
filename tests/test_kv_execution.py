@@ -29,10 +29,10 @@ import unittest
 
 import numpy as np
 
-from maxtext.inference.kv_common import CacheNamespace, KvPageTableV1, KvStorageLayoutV1
-from maxtext.inference.kv_control import NativeKvControlPlane, RequestHandle
-from maxtext.inference.kv_execution import allocate_pool, PagedDriver, PagedRequest
-from maxtext.inference.kv_execution.bucketing import (
+from jax_vllm_gpu.kv.common import CacheNamespace, KvPageTableV1, KvStorageLayoutV1
+from jax_vllm_gpu.kv.control import NativeKvControlPlane, RequestHandle
+from jax_vllm_gpu.kv.execution import allocate_pool, PagedDriver, PagedRequest
+from jax_vllm_gpu.kv.execution.bucketing import (
     StepShape,
     StepShapePlanner,
     batch_ladder,
@@ -40,16 +40,16 @@ from maxtext.inference.kv_execution.bucketing import (
     seqlen_ladder,
     token_ladder,
 )
-from maxtext.inference.kv_execution.engine_adapter import PagedRuntime
-from maxtext.inference.kv_execution.layout_builder import build_storage_layout, kv_head_shards
-from maxtext.inference.kv_execution.pool_ops import (
+from jax_vllm_gpu.kv.execution.engine_adapter import PagedRuntime
+from jax_vllm_gpu.kv.execution.layout_builder import build_storage_layout, kv_head_shards
+from jax_vllm_gpu.kv.execution.pool_ops import (
     POISON_SENTINEL,
     poison_pages,
     scrub_pages,
     scrub_pages_all_layers,
 )
-from maxtext.inference.kv_execution.step_inputs import RequestSlice, build_step_inputs
-from maxtext.inference.kv_execution.step_view import build_step_view
+from jax_vllm_gpu.kv.execution.step_inputs import RequestSlice, build_step_inputs
+from jax_vllm_gpu.kv.execution.step_view import build_step_view
 
 PAGE = 16
 
@@ -193,7 +193,7 @@ class StepViewTest(unittest.TestCase):
 
   def _view(self, num_requests=4, num_tokens=4, num_pages=8, max_seqlen_k=64):
     """The two-request decode table above, padded to a given bucketed shape."""
-    from maxtext.inference.kv_execution.bucketing import StepShape  # pylint: disable=import-outside-toplevel
+    from jax_vllm_gpu.kv.execution.bucketing import StepShape  # pylint: disable=import-outside-toplevel
 
     shape = StepShape(
         num_requests=num_requests,
@@ -918,7 +918,7 @@ class PagedRuntimeTest(unittest.TestCase):
     return PagedRuntime(plane, allocate_pool(layout)), plane
 
   def _admit(self, plane, request_id="r0", prompt_len=20):
-    from maxtext.inference.kv_control import RequestDescriptor  # pylint: disable=import-outside-toplevel
+    from jax_vllm_gpu.kv.control import RequestDescriptor  # pylint: disable=import-outside-toplevel
 
     handle = plane.admit(RequestDescriptor(request_id=request_id, prompt_len=prompt_len, max_new_tokens=4))
     plane.reserve([handle], [prompt_len])

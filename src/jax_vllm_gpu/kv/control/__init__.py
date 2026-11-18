@@ -7,7 +7,7 @@ and does not want to. Keeping it here means the whole control plane is unit
 testable on a machine with no accelerator.
 
 Import rule, enforced by CI: this package may import the standard library,
-``numpy``, and ``maxtext.inference.kv_common``. It must never import ``jax``,
+``numpy``, and ``jax_vllm_gpu.kv.common``. It must never import ``jax``,
 ``jax_aiter``, ``maxtext.layers``, or ``maxtext.models``. Vendor kernel ABIs are
 reached only from ``kv_execution``, one layer up. Two things follow, and both are
 worth the cost of policing the rule: the layer stays CPU-testable in ordinary CI,
@@ -29,13 +29,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from maxtext.inference.kv_control.allocator import DoubleFreeError, PagedBlockAllocator
-from maxtext.inference.kv_control.control_plane import (
+from jax_vllm_gpu.kv.control.allocator import DoubleFreeError, PagedBlockAllocator
+from jax_vllm_gpu.kv.control.control_plane import (
     DirtyPageError,
     NativeKvControlPlane,
     SharedPageWriteError,
 )
-from maxtext.inference.kv_control.logical_block import (
+from jax_vllm_gpu.kv.control.logical_block import (
     LogicalBlock,
     PageState,
     PageStateError,
@@ -45,18 +45,18 @@ from maxtext.inference.kv_control.logical_block import (
     pages_for_tokens,
     token_slot,
 )
-from maxtext.inference.kv_control.metadata import build_decode_table, build_page_table
-from maxtext.inference.kv_control.page_map import PageCapacityError, PageMap, StaleRequestHandleError
-from maxtext.inference.kv_control.prefix_index import (
+from jax_vllm_gpu.kv.control.metadata import build_decode_table, build_page_table
+from jax_vllm_gpu.kv.control.page_map import PageCapacityError, PageMap, StaleRequestHandleError
+from jax_vllm_gpu.kv.control.prefix_index import (
     PrefixIndex,
     PrefixMatch,
     PrefixNode,
     PublishResult,
     block_hash,
 )
-from maxtext.inference.kv_control.protocols import KvControlPlane
-from maxtext.inference.kv_control.request import RequestDescriptor, RequestHandle, RequestState
-from maxtext.inference.kv_control.residency import NotResidentError, PageResidency, Tier
+from jax_vllm_gpu.kv.control.protocols import KvControlPlane
+from jax_vllm_gpu.kv.control.request import RequestDescriptor, RequestHandle, RequestState
+from jax_vllm_gpu.kv.control.residency import NotResidentError, PageResidency, Tier
 
 __all__ = [
     "DirtyPageError",

@@ -25,9 +25,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from maxtext.inference.kv_common.namespace import CACHE_NAMESPACE_VERSION, CacheNamespace
-from maxtext.inference.kv_common.page_table import KV_PAGE_TABLE_VERSION, KvPageTableV1
-from maxtext.inference.kv_common.storage_layout import (
+from jax_vllm_gpu.kv.common.namespace import CACHE_NAMESPACE_VERSION, CacheNamespace
+from jax_vllm_gpu.kv.common.page_table import KV_PAGE_TABLE_VERSION, KvPageTableV1
+from jax_vllm_gpu.kv.common.storage_layout import (
     KV_STORAGE_LAYOUT_VERSION,
     KvStorageLayoutV1,
 )

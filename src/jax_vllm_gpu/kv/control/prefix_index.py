@@ -58,7 +58,7 @@ from typing import Iterable, Sequence
 
 import numpy as np
 
-from maxtext.inference.kv_common import CacheNamespace
+from jax_vllm_gpu.kv.common import CacheNamespace
 
 _EMPTY_PAGES = np.empty((0,), dtype=np.int32)
 

@@ -45,7 +45,7 @@ import numpy as np
 import jax
 
 from maxtext.inference import inference_utils
-from maxtext.inference.kv_execution.driver import PagedDriver, PagedRequest
+from jax_vllm_gpu.kv.execution.driver import PagedDriver, PagedRequest
 from maxtext.inference.maxengine.maxengine import MaxEngine
 from maxtext.utils import max_logging
 
@@ -131,7 +131,7 @@ class PagedInferenceWorker:
     tokenizer_type = str(getattr(declared, "value", declared)).lower()
     if tokenizer_type in ("", "huggingface"):
       # pylint: disable=import-outside-toplevel
-      from maxtext.inference import hf_tokenizer
+      from jax_vllm_gpu.engine import tokenizer as hf_tokenizer
 
       eos = self.eos_ids[0] if self.eos_ids else None
       return hf_tokenizer.build_tokenizer(path, eos_id=eos)

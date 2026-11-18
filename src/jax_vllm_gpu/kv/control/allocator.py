@@ -69,7 +69,7 @@ from typing import Sequence
 
 import numpy as np
 
-from maxtext.inference.kv_common import KvStorageLayoutV1
+from jax_vllm_gpu.kv.common import KvStorageLayoutV1
 
 
 class DoubleFreeError(RuntimeError):

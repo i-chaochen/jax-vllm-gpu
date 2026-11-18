@@ -19,9 +19,9 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from maxtext.inference.kv_common import KvPageTableV1
-from maxtext.inference.kv_execution.step_inputs import RequestSlice, StepInputs, build_step_inputs
-from maxtext.inference.kv_execution.step_view import StepView, build_step_view
+from jax_vllm_gpu.kv.common import KvPageTableV1
+from jax_vllm_gpu.kv.execution.step_inputs import RequestSlice, StepInputs, build_step_inputs
+from jax_vllm_gpu.kv.execution.step_view import StepView, build_step_view
 
 from .kv_reuse import PageReuseTracker
 from .page_table import RequestPages, build_page_table

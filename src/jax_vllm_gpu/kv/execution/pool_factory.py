@@ -35,7 +35,7 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 
-from maxtext.inference.kv_common import KvStorageLayoutV1
+from jax_vllm_gpu.kv.common import KvStorageLayoutV1
 
 
 @dataclasses.dataclass

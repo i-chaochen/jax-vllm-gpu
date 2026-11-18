@@ -26,7 +26,7 @@ from typing import Any
 
 import numpy as np
 
-from maxtext.inference.kv_common import KvStorageLayoutV1
+from jax_vllm_gpu.kv.common import KvStorageLayoutV1
 
 # MaxText spells the KV-head tensor-parallel axes several ways depending on the
 # model; these are the ones that shard `num_kv_heads`. The last two belong to the

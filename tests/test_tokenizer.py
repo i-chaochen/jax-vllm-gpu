@@ -34,7 +34,7 @@ import unittest
 
 import numpy as np
 
-from maxtext.inference import hf_tokenizer
+from jax_vllm_gpu.engine import tokenizer as hf_tokenizer
 
 
 def _tiny_tokenizer_json() -> dict:

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from maxtext.inference.kv_common import KvStorageLayoutV1
+from jax_vllm_gpu.kv.common import KvStorageLayoutV1
 
 
 def layer_names(num_layers: int) -> tuple[str, ...]:

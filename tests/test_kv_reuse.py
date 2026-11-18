@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-pytest.importorskip("maxtext.inference.kv_common", reason="MaxText must be importable")
+pytest.importorskip("jax_vllm_gpu.kv.common", reason="MaxText must be importable")
 
 from jax_vllm_gpu.plugin.kv_reuse import DirtyPageError, PageReuseTracker
 from jax_vllm_gpu.plugin.page_table import RequestPages

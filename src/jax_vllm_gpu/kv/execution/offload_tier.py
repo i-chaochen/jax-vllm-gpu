@@ -62,7 +62,7 @@ from typing import Any
 
 import numpy as np
 
-from maxtext.inference.kv_execution.page_staging import (
+from jax_vllm_gpu.kv.execution.page_staging import (
     StagedPages,
     offload_pages,
     reload_pages,

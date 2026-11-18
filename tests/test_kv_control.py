@@ -29,8 +29,8 @@ import unittest
 
 import numpy as np
 
-from maxtext.inference.kv_common import KvStorageLayoutV1
-from maxtext.inference.kv_control import (
+from jax_vllm_gpu.kv.common import KvStorageLayoutV1
+from jax_vllm_gpu.kv.control import (
     DirtyPageError,
     DoubleFreeError,
     KvControlPlane,
@@ -52,7 +52,7 @@ from maxtext.inference.kv_control import (
     pages_for_tokens,
     token_slot,
 )
-from maxtext.inference.kv_control.logical_block import LogicalBlock, check_transition
+from jax_vllm_gpu.kv.control.logical_block import LogicalBlock, check_transition
 
 PAGE = 16
 

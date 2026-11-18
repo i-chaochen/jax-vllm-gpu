@@ -55,14 +55,14 @@ from typing import Sequence
 
 import numpy as np
 
-from maxtext.inference.kv_common import CacheNamespace, KvPageTableV1, KvStorageLayoutV1
-from maxtext.inference.kv_control import metadata
-from maxtext.inference.kv_control.allocator import PagedBlockAllocator
-from maxtext.inference.kv_control.logical_block import new_pages_for_extend, pages_for_tokens
-from maxtext.inference.kv_control.page_map import PageCapacityError, PageMap
-from maxtext.inference.kv_control.prefix_index import PrefixIndex, PrefixMatch, PrefixNode
-from maxtext.inference.kv_control.request import RequestDescriptor, RequestHandle
-from maxtext.inference.kv_control.residency import NotResidentError, PageResidency, Tier
+from jax_vllm_gpu.kv.common import CacheNamespace, KvPageTableV1, KvStorageLayoutV1
+from jax_vllm_gpu.kv.control import metadata
+from jax_vllm_gpu.kv.control.allocator import PagedBlockAllocator
+from jax_vllm_gpu.kv.control.logical_block import new_pages_for_extend, pages_for_tokens
+from jax_vllm_gpu.kv.control.page_map import PageCapacityError, PageMap
+from jax_vllm_gpu.kv.control.prefix_index import PrefixIndex, PrefixMatch, PrefixNode
+from jax_vllm_gpu.kv.control.request import RequestDescriptor, RequestHandle
+from jax_vllm_gpu.kv.control.residency import NotResidentError, PageResidency, Tier
 
 _DEFAULT_NAMESPACE = CacheNamespace()
 

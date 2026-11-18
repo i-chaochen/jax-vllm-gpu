@@ -49,7 +49,7 @@ from flax.linen import partitioning as nn_partitioning
 
 from maxtext.common.common_types import MODEL_MODE_PREFILL
 from maxtext.configs import pyconfig
-from maxtext.inference.kv_common import CacheNamespace
+from jax_vllm_gpu.kv.common import CacheNamespace
 from maxtext.utils import maxtext_utils, model_creation_utils
 
 try:
@@ -61,7 +61,7 @@ except ModuleNotFoundError as _exc:  # pragma: no cover - environment dependent
       allow_module_level=True,
   )
 
-from tests.utils.test_helpers import get_test_config_path  # pylint: disable=wrong-import-position
+from maxtext_test_config import get_test_config_path  # pylint: disable=wrong-import-position
 
 PAGE = 16
 STEPS = 12

@@ -34,10 +34,10 @@ from typing import Sequence
 
 import numpy as np
 
-from maxtext.inference.kv_common import KvPageTableV1
-from maxtext.inference.kv_control.logical_block import pages_for_tokens
-from maxtext.inference.kv_control.page_map import PageMap
-from maxtext.inference.kv_control.request import RequestHandle
+from jax_vllm_gpu.kv.common import KvPageTableV1
+from jax_vllm_gpu.kv.control.logical_block import pages_for_tokens
+from jax_vllm_gpu.kv.control.page_map import PageMap
+from jax_vllm_gpu.kv.control.request import RequestHandle
 
 
 def build_page_table(

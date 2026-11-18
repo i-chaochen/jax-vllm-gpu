@@ -60,7 +60,7 @@ except ModuleNotFoundError as _exc:  # pragma: no cover - environment dependent
       allow_module_level=True,
   )
 
-from tests.utils.test_helpers import get_test_config_path  # pylint: disable=wrong-import-position
+from maxtext_test_config import get_test_config_path  # pylint: disable=wrong-import-position
 
 PROMPT = [3, 17, 42, 5, 9, 21, 33, 2]
 # 8 prompt tokens plus 45 generated is 53, so the context spans four pages and
@@ -383,7 +383,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
     impossible -- so it is worth checking rather than assuming.
     """
     # pylint: disable=import-outside-toplevel
-    from maxtext.inference.kv_execution.driver import PagedDriver, PagedRequest
+    from jax_vllm_gpu.kv.execution.driver import PagedDriver, PagedRequest
 
     cfg = _config(**_PAGED)
     params_state = self._build_params(cfg)
@@ -434,7 +434,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
     reference that distinguishes "packed correctly" from "packed consistently".
     """
     # pylint: disable=import-outside-toplevel
-    from maxtext.inference.kv_execution.step_inputs import RequestSlice, build_step_inputs
+    from jax_vllm_gpu.kv.execution.step_inputs import RequestSlice, build_step_inputs
 
     cfg = _config(**_PAGED)
     params_state = self._build_params(cfg)

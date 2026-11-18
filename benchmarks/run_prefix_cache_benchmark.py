@@ -57,8 +57,8 @@ from flax.linen import partitioning as nn_partitioning
 
 from maxtext.common.common_types import MODEL_MODE_PREFILL
 from maxtext.configs import pyconfig
-from maxtext.inference.kv_common import CacheNamespace
-from maxtext.inference.kv_execution import benchmark
+from jax_vllm_gpu.kv.common import CacheNamespace
+from jax_vllm_gpu.kv.execution import benchmark
 from maxtext.utils import maxtext_utils, model_creation_utils
 
 NAMESPACE = CacheNamespace(model_fingerprint="prefix-bench", tokenizer="synthetic")
@@ -120,7 +120,7 @@ def serve(engine, params, requests, *, max_batch: int, measure: bool):
   reads them off `PagedRequest`.
   """
   # pylint: disable=import-outside-toplevel
-  from maxtext.inference.kv_execution.driver import PagedDriver
+  from jax_vllm_gpu.kv.execution.driver import PagedDriver
 
   runtime = engine.paged_runtime
   trace = list(requests)

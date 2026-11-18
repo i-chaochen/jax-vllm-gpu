@@ -38,3 +38,4 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["gpu_only: needs a GPU; skipped when JAX sees none (see tests/conftest.py)"]

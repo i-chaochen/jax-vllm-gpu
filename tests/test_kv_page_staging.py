@@ -32,14 +32,14 @@ import pytest
 import jax
 import jax.numpy as jnp
 
-from maxtext.inference.kv_common import KvStorageLayoutV1
-from maxtext.inference.kv_execution.page_staging import (
+from jax_vllm_gpu.kv.common import KvStorageLayoutV1
+from jax_vllm_gpu.kv.execution.page_staging import (
     HOST_MEMORY_KIND,
     offload_pages,
     pad_page_indices,
     reload_pages,
 )
-from maxtext.inference.kv_execution.pool_factory import allocate_pool
+from jax_vllm_gpu.kv.execution.pool_factory import allocate_pool
 
 PAGE = 8
 PAGES = 16

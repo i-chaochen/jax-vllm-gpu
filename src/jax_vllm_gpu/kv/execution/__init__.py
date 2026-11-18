@@ -26,30 +26,30 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from maxtext.inference.kv_execution.bucketing import (
+from jax_vllm_gpu.kv.execution.bucketing import (
     StepShape,
     batch_ladder,
     bucket_up,
     token_ladder,
 )
-from maxtext.inference.kv_execution.driver import PagedDriver, PagedRequest, StepOutcome
-from maxtext.inference.kv_execution.layout_builder import build_storage_layout
-from maxtext.inference.kv_execution.offload_tier import HostOffloadTier, TierCapacityError
-from maxtext.inference.kv_execution.page_staging import (
+from jax_vllm_gpu.kv.execution.driver import PagedDriver, PagedRequest, StepOutcome
+from jax_vllm_gpu.kv.execution.layout_builder import build_storage_layout
+from jax_vllm_gpu.kv.execution.offload_tier import HostOffloadTier, TierCapacityError
+from jax_vllm_gpu.kv.execution.page_staging import (
     StagedPages,
     offload_pages,
     pad_page_indices,
     reload_pages,
 )
-from maxtext.inference.kv_execution.pool_factory import PagedKvPool, allocate_pool
-from maxtext.inference.kv_execution.pool_ops import (
+from jax_vllm_gpu.kv.execution.pool_factory import PagedKvPool, allocate_pool
+from jax_vllm_gpu.kv.execution.pool_ops import (
     POISON_SENTINEL,
     poison_pages,
     scrub_pages,
     scrub_pages_all_layers,
 )
-from maxtext.inference.kv_execution.step_inputs import RequestSlice, StepInputs, build_step_inputs
-from maxtext.inference.kv_execution.step_view import StepView, build_step_view
+from jax_vllm_gpu.kv.execution.step_inputs import RequestSlice, StepInputs, build_step_inputs
+from jax_vllm_gpu.kv.execution.step_view import StepView, build_step_view
 
 __all__ = [
     "POISON_SENTINEL",

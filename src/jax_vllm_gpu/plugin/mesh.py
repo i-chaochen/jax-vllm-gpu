@@ -78,14 +78,14 @@ def kv_head_shards(mesh: Any) -> int:
     about which axes are sharded, which would be wrong in a way no shape check
     would catch.
     """
-    from maxtext.inference.kv_execution.layout_builder import kv_head_shards as maxtext_shards
+    from jax_vllm_gpu.kv.execution.layout_builder import kv_head_shards as maxtext_shards
 
     return maxtext_shards(mesh)
 
 
 def pool_replicas(mesh: Any) -> int:
     """Devices holding a copy of each KV-head shard."""
-    from maxtext.inference.kv_execution.layout_builder import pool_replicas as maxtext_replicas
+    from jax_vllm_gpu.kv.execution.layout_builder import pool_replicas as maxtext_replicas
 
     return maxtext_replicas(mesh)
 

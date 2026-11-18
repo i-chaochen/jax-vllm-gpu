@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from maxtext.inference.kv_common import KvPageTableV1
+from jax_vllm_gpu.kv.common import KvPageTableV1
 
 
 @dataclass

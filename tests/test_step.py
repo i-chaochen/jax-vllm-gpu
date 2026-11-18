@@ -6,9 +6,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-pytest.importorskip("maxtext.inference.kv_common", reason="MaxText must be importable")
+pytest.importorskip("jax_vllm_gpu.kv.common", reason="MaxText must be importable")
 
-from maxtext.inference.kv_execution.bucketing import StepShapePlanner
+from jax_vllm_gpu.kv.execution.bucketing import StepShapePlanner
 
 from jax_vllm_gpu.plugin.kv_reuse import PageReuseTracker
 from jax_vllm_gpu.plugin.page_table import RequestPages

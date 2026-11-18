@@ -24,7 +24,7 @@ import unittest
 
 import numpy as np
 
-from maxtext.inference.kv_common import KvPageTableV1, KvStorageLayoutV1
+from jax_vllm_gpu.kv.common import KvPageTableV1, KvStorageLayoutV1
 
 # Imported by package path, which is cheap: `maxtext/__init__.py` resolves its
 # heavy exports through a lazy `__getattr__`, so reaching a submodule loads

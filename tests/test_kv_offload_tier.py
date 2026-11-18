@@ -39,11 +39,11 @@ import pytest
 import jax
 import jax.numpy as jnp
 
-from maxtext.inference.kv_common import KvStorageLayoutV1
-from maxtext.inference.kv_control import NativeKvControlPlane, RequestDescriptor, Tier
-from maxtext.inference.kv_execution.offload_tier import HostOffloadTier
-from maxtext.inference.kv_execution.page_staging import HOST_MEMORY_KIND
-from maxtext.inference.kv_execution.pool_factory import allocate_pool
+from jax_vllm_gpu.kv.common import KvStorageLayoutV1
+from jax_vllm_gpu.kv.control import NativeKvControlPlane, RequestDescriptor, Tier
+from jax_vllm_gpu.kv.execution.offload_tier import HostOffloadTier
+from jax_vllm_gpu.kv.execution.page_staging import HOST_MEMORY_KIND
+from jax_vllm_gpu.kv.execution.pool_factory import allocate_pool
 
 PAGE = 8
 # Deliberately small: two four-page requests fill it, so the third can only be

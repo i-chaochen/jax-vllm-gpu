@@ -31,9 +31,9 @@ pytest.importorskip("vllm", reason="vLLM supplies ModelRunnerOutput")
 import jax
 import jax.numpy as jnp
 
-from maxtext.inference.kv_common import KvStorageLayoutV1
-from maxtext.inference.kv_execution.bucketing import StepShapePlanner
-from maxtext.inference.kv_execution.pool_factory import allocate_pool
+from jax_vllm_gpu.kv.common import KvStorageLayoutV1
+from jax_vllm_gpu.kv.execution.bucketing import StepShapePlanner
+from jax_vllm_gpu.kv.execution.pool_factory import allocate_pool
 
 from jax_vllm_gpu.plugin import pool as pool_module
 from jax_vllm_gpu.plugin.kv_reuse import PageReuseTracker

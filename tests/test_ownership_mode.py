@@ -22,11 +22,11 @@ import pytest
 
 import jax_vllm_gpu.plugin
 
-# The page-ownership half of MaxText's native control plane. `kv_execution` is
+# The page-ownership half of the native control plane. `kv_execution` is
 # deliberately not here: its pool factory, bucketing, step view and pool ops are
 # frontend-agnostic and this platform is a legitimate user of all of them. It is
 # specifically the allocator and the prefix index that vLLM replaces.
-FORBIDDEN_ROOT = "maxtext.inference.kv_control"
+FORBIDDEN_ROOT = "jax_vllm_gpu.kv.control"
 
 
 def plugin_modules():
@@ -68,7 +68,7 @@ def test_no_plugin_module_reaches_maxtexts_own_allocator(path):
 
     assert not offending, (
         f"{path.name} imports {offending}. Under EXTERNAL_VLLM vLLM's "
-        "KVCacheManager is the sole page owner; MaxText's allocator and prefix "
+        "KVCacheManager is the sole page owner; the native allocator and prefix "
         "index are bypassed, not merely unused."
     )
 
@@ -82,7 +82,7 @@ def test_the_scan_actually_sees_imports():
     """
     seen = {name for path in plugin_modules() for name in imported_names(path)}
 
-    assert any(name.startswith("maxtext.inference.kv_execution") for name in seen)
+    assert any(name.startswith("jax_vllm_gpu.kv.execution") for name in seen)
 
 
 def test_the_scrub_contract_still_has_an_answerer():
@@ -94,13 +94,13 @@ def test_the_scrub_contract_still_has_an_answerer():
     Bypassing the allocator therefore has to leave those two questions answered
     by something, and here it is `PageReuseTracker`.
     """
-    from maxtext.inference.kv_control.protocols import KvControlPlane
+    from jax_vllm_gpu.kv.control.protocols import KvControlPlane
 
     from jax_vllm_gpu.plugin.kv_reuse import PageReuseTracker
 
     scrub_contract = ("pending_scrub", "confirm_scrubbed")
     for name in scrub_contract:
-        assert hasattr(KvControlPlane, name), f"{name} left MaxText's protocol"
+        assert hasattr(KvControlPlane, name), f"{name} left the control-plane protocol"
         assert callable(getattr(PageReuseTracker, name, None)), (
             f"nothing in EXTERNAL_VLLM mode answers {name}"
         )

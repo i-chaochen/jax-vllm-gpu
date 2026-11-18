@@ -2,20 +2,19 @@
 
 Two packages, two allowances:
 
-  * ``kv_common`` -- the neutral vocabulary -- may import the standard library
+  * ``kv.common`` -- the neutral vocabulary -- may import the standard library
     and ``numpy``, and nothing else.
-  * ``kv_control`` -- the semantic control plane -- may also import
-    ``kv_common``.
+  * ``kv.control`` -- the semantic control plane -- may also import
+    ``kv.common``.
 
-Neither may import ``jax``, ``jax_aiter``, ``maxtext.layers`` or
-``maxtext.models``. Vendor kernel ABIs are reached only from ``kv_execution``,
-one layer up.
+Neither may import ``jax``, ``jax_aiter``, ``maxtext`` or ``vllm``. Kernel
+providers are reached only from ``kv.execution``, one layer up.
 
 Both properties this buys are load-bearing, which is why the rule is checked and
 not merely written down. The layers stay testable with no accelerator present,
 so their logic is covered by ordinary CI rather than by a GPU job. And if a
 second consumer ever wants the control plane, extracting it is a directory move
-with no vendor dependency to untangle first.
+with no framework dependency to untangle first.
 
 Checked statically over the AST, so a violation is reported without importing
 anything, and one subprocess check confirms the static rule matches what the
@@ -43,11 +42,12 @@ import subprocess
 import sys
 import unittest
 
-_INFERENCE_DIR = pathlib.Path(__file__).resolve().parents[2] / "src" / "maxtext" / "inference"
+_KV_DIR = pathlib.Path(__file__).resolve().parents[1] / "src" / "jax_vllm_gpu" / "kv"
+_PACKAGE = "jax_vllm_gpu"
 
 # A package importing any of these has broken the rule outright, and saying so
 # by name gives a better failure than "unexpected import".
-FORBIDDEN_ROOTS = frozenset({"jax", "jaxlib", "flax", "torch", "jax_aiter", "tensorflow"})
+FORBIDDEN_ROOTS = frozenset({"jax", "jaxlib", "flax", "torch", "jax_aiter", "tensorflow", "maxtext", "vllm"})
 
 # Everything either layer legitimately needs. Extend only for something that is
 # genuinely stdlib or numpy.
@@ -66,54 +66,58 @@ ALLOWED_ROOTS = frozenset(
 )
 
 
+def _within(module: str, prefix: str) -> bool:
+  return module == prefix or module.startswith(prefix + ".")
+
+
 @dataclasses.dataclass(frozen=True)
 class _Layer:
-  """One package and the dotted prefixes under `maxtext` it may reach."""
+  """One package and the dotted prefixes inside this package it may reach."""
 
   package: str
-  allowed_maxtext: frozenset[str]
+  allowed_internal: frozenset[str]
 
   @property
   def directory(self) -> pathlib.Path:
-    return _INFERENCE_DIR / self.package.rsplit(".", 1)[1]
+    return _KV_DIR / self.package.rsplit(".", 1)[1]
 
-  def permits_maxtext(self, module: str) -> bool:
-    return any(module == prefix or module.startswith(prefix + ".") for prefix in self.allowed_maxtext)
+  def permits(self, module: str) -> bool:
+    return any(_within(module, prefix) for prefix in self.allowed_internal)
 
 
-_KV_COMMON = "maxtext.inference.kv_common"
-_KV_CONTROL = "maxtext.inference.kv_control"
-# Deliberately not a checked layer: `kv_execution` is where jax, MaxText config
-# and the vendor backend legitimately live. What matters is that nothing below it
-# imports it, which the test below asserts.
-_KV_EXECUTION = "maxtext.inference.kv_execution"
+_KV_COMMON = "jax_vllm_gpu.kv.common"
+_KV_CONTROL = "jax_vllm_gpu.kv.control"
+# Deliberately not a checked layer: `kv.execution` is where jax, model config
+# and the kernel provider legitimately live. What matters is that nothing below
+# it imports it, which the test below asserts.
+_KV_EXECUTION = "jax_vllm_gpu.kv.execution"
 
 LAYERS = (
-    _Layer(package=_KV_COMMON, allowed_maxtext=frozenset({_KV_COMMON})),
-    _Layer(package=_KV_CONTROL, allowed_maxtext=frozenset({_KV_CONTROL, _KV_COMMON})),
+    _Layer(package=_KV_COMMON, allowed_internal=frozenset({_KV_COMMON})),
+    _Layer(package=_KV_CONTROL, allowed_internal=frozenset({_KV_CONTROL, _KV_COMMON})),
 )
 
 
 def _imports(path: pathlib.Path, layer: _Layer) -> set[str]:
-  """Root packages imported by `path`, with permitted `maxtext` imports elided.
+  """Root packages imported by `path`, with permitted imports of this package elided.
 
-  A `maxtext` import the layer does not permit is reported under its full dotted
-  name rather than as the root `maxtext`, so the failure message names the actual
-  violation instead of making the reader go and find it.
+  An import from this package that the layer does not permit is reported under
+  its full dotted name rather than as the root, so the failure message names
+  the actual violation instead of making the reader go and find it.
   """
   roots: set[str] = set()
   for node in ast.walk(ast.parse(path.read_text())):
     if isinstance(node, ast.Import):
       for alias in node.names:
-        if layer.permits_maxtext(alias.name):
+        if layer.permits(alias.name):
           continue
-        roots.add(alias.name if alias.name.startswith("maxtext") else alias.name.split(".")[0])
+        roots.add(alias.name if _within(alias.name, _PACKAGE) else alias.name.split(".")[0])
     elif isinstance(node, ast.ImportFrom):
       if node.level or not node.module:  # a relative import stays inside the package
         continue
-      if layer.permits_maxtext(node.module):
+      if layer.permits(node.module):
         continue
-      roots.add(node.module if node.module.startswith("maxtext") else node.module.split(".")[0])
+      roots.add(node.module if _within(node.module, _PACKAGE) else node.module.split(".")[0])
   return roots
 
 
@@ -144,21 +148,18 @@ class ImportRuleTest(unittest.TestCase):
             unexpected,
             set(),
             f"{layer.package}/{path.name} imports {sorted(unexpected)}; extend ALLOWED_ROOTS only if "
-            f"the addition is genuinely stdlib or numpy, and never to admit a maxtext module",
+            f"the addition is genuinely stdlib or numpy",
         )
 
   def test_kv_common_does_not_reach_up_into_kv_control(self):
     """The dependency runs one way. A cycle here would defeat extraction."""
     common = LAYERS[0]
     for path in sorted(common.directory.glob("*.py")):
-      self.assertNotIn(
-          _KV_CONTROL,
-          _imports(path, common),
-          f"kv_common/{path.name} imports kv_control, inverting the layering",
-      )
+      reached = sorted(m for m in _imports(path, common) if _within(m, _KV_CONTROL))
+      self.assertEqual(reached, [], f"kv/common/{path.name} imports kv.control, inverting the layering")
 
   def test_neither_lower_layer_reaches_up_into_kv_execution(self):
-    """`kv_execution` is where jax and the vendor backend live.
+    """`kv.execution` is where jax and the kernel provider live.
 
     It exists precisely to hold the couplings the two layers below refuse, so a
     single import in this direction would put jax back into the control plane's
@@ -168,11 +169,8 @@ class ImportRuleTest(unittest.TestCase):
     """
     for layer in LAYERS:
       for path in sorted(layer.directory.glob("*.py")):
-        self.assertNotIn(
-            _KV_EXECUTION,
-            _imports(path, layer),
-            f"{layer.package}/{path.name} imports kv_execution, inverting the layering",
-        )
+        reached = sorted(m for m in _imports(path, layer) if _within(m, _KV_EXECUTION))
+        self.assertEqual(reached, [], f"{layer.package}/{path.name} imports kv.execution, inverting the layering")
 
   def test_package_inits_only_re_export_their_own_modules(self):
     for layer in LAYERS:
@@ -180,7 +178,7 @@ class ImportRuleTest(unittest.TestCase):
       for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
           self.assertTrue(
-              node.module.startswith(layer.package),
+              _within(node.module, layer.package),
               f"{layer.package}/__init__.py imports from {node.module}, outside its own package",
           )
 
@@ -192,9 +190,9 @@ class ImportRuleTest(unittest.TestCase):
     nothing.
     """
     code = (
-        "import sys, maxtext.inference.kv_control, maxtext.inference.kv_common;"
+        "import sys, jax_vllm_gpu.kv.control, jax_vllm_gpu.kv.common;"
         "print(sorted({m.split('.')[0] for m in sys.modules} & "
-        "{'jax', 'jaxlib', 'flax', 'torch', 'tensorflow'}))"
+        "{'jax', 'jaxlib', 'flax', 'torch', 'tensorflow', 'maxtext', 'vllm'}))"
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
     self.assertEqual(result.returncode, 0, f"importing the KV layers failed:\n{result.stderr}")

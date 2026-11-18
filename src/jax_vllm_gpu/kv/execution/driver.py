@@ -50,20 +50,20 @@ from typing import Callable, Iterable, Sequence
 
 import numpy as np
 
-from maxtext.inference.kv_common import CacheNamespace
-from maxtext.inference.kv_control import (
+from jax_vllm_gpu.kv.common import CacheNamespace
+from jax_vllm_gpu.kv.control import (
     NativeKvControlPlane,
     RequestDescriptor,
     RequestHandle,
     RequestState,
     pages_for_tokens,
 )
-from maxtext.inference.kv_execution.bucketing import StepShape, StepShapePlanner
-from maxtext.inference.kv_execution.engine_adapter import PagedRuntime
-from maxtext.inference.kv_execution.pool_factory import PagedKvPool
-from maxtext.inference.kv_execution.pool_ops import poison_pages
-from maxtext.inference.kv_execution.step_inputs import RequestSlice, StepInputs, build_step_inputs
-from maxtext.inference.kv_execution.step_view import StepView
+from jax_vllm_gpu.kv.execution.bucketing import StepShape, StepShapePlanner
+from jax_vllm_gpu.kv.execution.engine_adapter import PagedRuntime
+from jax_vllm_gpu.kv.execution.pool_factory import PagedKvPool
+from jax_vllm_gpu.kv.execution.pool_ops import poison_pages
+from jax_vllm_gpu.kv.execution.step_inputs import RequestSlice, StepInputs, build_step_inputs
+from jax_vllm_gpu.kv.execution.step_view import StepView
 
 _DEFAULT_NAMESPACE = CacheNamespace()
 

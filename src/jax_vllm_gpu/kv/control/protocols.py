@@ -34,8 +34,8 @@ from typing import Protocol, Sequence, runtime_checkable
 
 import numpy as np
 
-from maxtext.inference.kv_common import KvPageTableV1, KvStorageLayoutV1
-from maxtext.inference.kv_control.request import RequestDescriptor, RequestHandle
+from jax_vllm_gpu.kv.common import KvPageTableV1, KvStorageLayoutV1
+from jax_vllm_gpu.kv.control.request import RequestDescriptor, RequestHandle
 
 
 @runtime_checkable

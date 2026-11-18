@@ -52,7 +52,7 @@ from typing import Sequence
 
 import numpy as np
 
-from maxtext.inference.kv_execution.bucketing import StepShape
+from jax_vllm_gpu.kv.execution.bucketing import StepShape
 
 # Matches `maxtext.common.common_types.DECODING_ACTIVE_SEQUENCE_INDICATOR`.
 # Duplicated as a literal rather than imported because that module pulls in jax,

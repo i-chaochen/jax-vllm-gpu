@@ -56,7 +56,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from maxtext.inference.kv_execution.driver import PagedDriver, PagedRequest
+from jax_vllm_gpu.kv.execution.driver import PagedDriver, PagedRequest
 
 
 @dataclasses.dataclass

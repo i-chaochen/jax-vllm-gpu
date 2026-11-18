@@ -44,8 +44,8 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from maxtext.inference.kv_common import KvPageTableV1
-from maxtext.inference.kv_execution.bucketing import StepShape
+from jax_vllm_gpu.kv.common import KvPageTableV1
+from jax_vllm_gpu.kv.execution.bucketing import StepShape
 
 
 @dataclasses.dataclass(frozen=True)
@@ -74,7 +74,7 @@ class StepView:
     Imported lazily so the control and execution layers stay usable without
     pulling in the attention module, which reaches a vendor backend.
     """
-    from maxtext.layers.gpu_paged_attention import PagedPlan  # pylint: disable=import-outside-toplevel
+    from jax_vllm_gpu.ops.paged_attention import PagedPlan  # pylint: disable=import-outside-toplevel
 
     return PagedPlan(
         slot_mapping=self.slot_mapping,
