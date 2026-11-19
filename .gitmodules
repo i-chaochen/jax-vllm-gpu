@@ -1,0 +1,3 @@
+[submodule "third_party/jax-aiter"]
+	path = third_party/jax-aiter
+	url = https://github.com/ROCm/jax-aiter.git
