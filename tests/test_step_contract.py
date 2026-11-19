@@ -175,3 +175,26 @@ def test_the_worker_delegates_sampling_rather_than_raising():
 
     assert worker.execute_model(a_scheduler_output()) is None
     assert worker.sample_tokens(None).req_ids == ["r0"]
+
+
+def test_a_roctx_range_spans_the_step_from_dispatch_to_the_sampled_tokens():
+    """execute_model only enqueues the forward pass, so the range has to stay
+    open until sample_tokens holds the tokens; closing it at dispatch would
+    cover none of the GPU work."""
+    runner = a_runner()
+    events = []
+
+    class FakeRoctx:
+        def start(self, name):
+            events.append(("start", name.split()[0]))
+            return 7
+
+        def stop(self, range_id):
+            events.append(("stop", range_id))
+
+    runner._roctx = FakeRoctx()
+    runner.execute_model(a_scheduler_output())
+    assert events == [("start", "JAX_VLLM_STEP")]
+
+    runner.sample_tokens(None)
+    assert events == [("start", "JAX_VLLM_STEP"), ("stop", 7)]

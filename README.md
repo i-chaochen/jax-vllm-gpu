@@ -88,6 +88,7 @@ the tests and the smoke runs.
 | variable | effect |
 |---|---|
 | `VLLM_JAX_PLATFORM` | `1` forces the plugin on, `0` forces it off. vLLM swallows exceptions from platform probes, so a probe failure otherwise looks like the wheel being absent. |
+| `JAX_VLLM_ROCTX` | `1` opens one ROCTX range per serving step, from dispatch until the sampled tokens reach the host, labelled with the step's shape, for lining up steps with GPU work in rocprofv3. Fails at startup if `librocprofiler-sdk-roctx` is missing. |
 | `VLLM_PLUGINS` | Allowlist of entry point names. Needed when another JAX platform plugin is installed beside this one, since vLLM refuses to activate two. |
 | `VLLM_TARGET_DEVICE` | **Hazard.** `cpu` makes vLLM return its CPU platform before loading any plugin, so this one is never probed. Keep it unset. |
 

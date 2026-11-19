@@ -40,6 +40,7 @@ from . import paged_plan, sampling
 from .batch_state import BatchState
 from .kv_reuse import PageReuseTracker
 from .page_table import RequestPages
+from .profiling import Roctx
 from .step import prepare_step
 
 logger = logging.getLogger(__name__)
@@ -55,13 +56,15 @@ class PendingStep(NamedTuple):
     `started` is when the step began, so the timing recorded at the end of
     `sample_tokens` covers the whole step. Measuring the two halves separately
     would attribute nothing to `execute_model`, which enqueues asynchronously and
-    returns before the work is done.
+    returns before the work is done. `roctx_range` spans the same interval, for
+    the same reason.
     """
 
     requests: tuple
     logits: Any
     shape: Any
     started: float
+    roctx_range: int | None = None
 
 
 class RequestTokens:
@@ -121,6 +124,10 @@ class JaxModelRunner:
 
         # Carries one step's logits from execute_model to sample_tokens.
         self._pending: PendingStep | None = None
+
+        # One ROCTX range per step when JAX_VLLM_ROCTX=1; None loads nothing.
+        self._roctx = Roctx.from_environment()
+        self._roctx_steps = 0
 
         self.tokens_per_page = int(self.cache_config.block_size)
 
@@ -377,6 +384,16 @@ class JaxModelRunner:
             request_width=shape.num_requests,
         )
 
+        roctx_range = None
+        if self._roctx is not None:
+            self._roctx_steps += 1
+            roctx_range = self._roctx.start(
+                f"JAX_VLLM_STEP index={self._roctx_steps} decode={int(shape.is_decode)} "
+                f"requests={len(requests)} "
+                f"active_tokens={sum(r.num_scheduled_tokens for r in requests)} "
+                f"tokens={shape.num_tokens} max_seqlen_k={shape.max_seqlen_k}"
+            )
+
         with jax.set_mesh(self.mesh):
             updated, logits = self._forward_fn(
                 self._state_leaves,
@@ -396,7 +413,11 @@ class JaxModelRunner:
         pool_module.rebind(self.pool, updated)
 
         self._pending = PendingStep(
-            requests=requests, logits=logits, shape=shape, started=started
+            requests=requests,
+            logits=logits,
+            shape=shape,
+            started=started,
+            roctx_range=roctx_range,
         )
         return None
 
@@ -445,6 +466,8 @@ class JaxModelRunner:
         # to stop after it: everything before returns while the work is still in
         # flight.
         sampled = np.asarray(jax.device_get(tokens), dtype=np.int64)
+        if pending.roctx_range is not None:
+            self._roctx.stop(pending.roctx_range)
         emitted = self._collect(requests, sampled)
         metrics.STEPS.record(
             shape=shape,
