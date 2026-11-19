@@ -222,6 +222,12 @@ class JaxPlatform(Platform):
         max_model_len = int(vllm_config.model_config.max_model_len)
         maxtext_config.setdefault("max_target_length", max_model_len)
 
+        # The embedding table is sharded over the vocabulary. XLA partitions a
+        # decode step's one-token lookup by all-gathering the whole table, 2 GB
+        # at 70B, on every step; the one-hot form is a local matmul and one
+        # all-reduce.
+        maxtext_config.setdefault("use_iota_embed", True)
+
     @classmethod
     def validate_request(cls, processed_inputs, params) -> None:
         """Reject sampling semantics the JAX sampler would otherwise ignore."""

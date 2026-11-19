@@ -111,6 +111,22 @@ def test_scanned_layers_are_rejected():
         JaxPlatform.check_and_update_config(config)
 
 
+def test_the_embedding_lookup_does_not_gather_the_table():
+    """With a gather, XLA all-gathers the vocab-sharded table on every decode
+    step; the one-hot lookup partitions locally."""
+    config = make_config()
+    JaxPlatform.check_and_update_config(config)
+
+    assert config.additional_config["maxtext_config"]["use_iota_embed"] is True
+
+
+def test_an_explicit_embedding_lookup_choice_is_kept():
+    config = make_config(additional_config={"maxtext_config": {"use_iota_embed": False}})
+    JaxPlatform.check_and_update_config(config)
+
+    assert config.additional_config["maxtext_config"]["use_iota_embed"] is False
+
+
 def test_maxtexts_context_bound_covers_what_vllm_will_admit():
     """MaxText validates a request against its own max_target_length. Left at the
     default that is shorter than vLLM's limit, so the model would reject a long
