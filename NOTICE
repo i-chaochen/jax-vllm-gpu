@@ -1,0 +1,13 @@
+jax-vllm-gpu
+Copyright 2026 Advanced Micro Devices, Inc.
+
+This product includes software derived from MaxText
+(https://github.com/AI-Hypercomputer/maxtext), Copyright 2023-2025 Google LLC,
+licensed under the Apache License, Version 2.0:
+
+  src/jax_vllm_gpu/models/adapters/maxtext_vllm.py
+    derived from src/maxtext/integration/vllm/maxtext_vllm_adapter/adapter.py
+
+The paged KV runtime under src/jax_vllm_gpu/kv, ops and engine was developed
+in a branch of MaxText (ROCm/maxtext chao/kv_paged_kernels) and moved here with
+its history.

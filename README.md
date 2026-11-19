@@ -1,123 +1,109 @@
-# jax-vllm-plugin
+# jax-vllm-gpu
 
-A vLLM **platform plugin** and **KV connector** for running JAX models on AMD
-GPUs, backed by the paged KV runtime in MaxText and the paged attention kernels
-in jax-aiter.
+JAX inference on GPUs, served through vLLM, built AMD-native first.
 
-This is milestone M10a of the AMD paged KV runtime plan, and it delivers the
-`maxtext-vllm-inference` image's serving half: vLLM supplies the OpenAI-compatible
-endpoint, the scheduler and the block manager, while this plugin supplies the
-platform, the worker, the model runner and the attention backend.
+jax-vllm-gpu runs MaxText models on AMD Instinct GPUs with a paged KV cache.
+KV lives in donated `jax.Array` page pools, and AITER's paged kernels, reached
+through JAX-AITER's XLA FFI, append to them and attend over them. The same
+runtime serves models two ways:
 
-## It is a plugin, not a fork
+- through **vLLM**, as an out-of-tree platform plugin. vLLM supplies the
+  OpenAI-compatible endpoint, the scheduler and the block manager; this package
+  supplies the platform, the worker, the model runner and the KV pool.
+- through a **native offline engine** with its own page allocator, prefix cache
+  and continuous-batching driver, and no vLLM in the process.
 
-No file in vLLM's tree changes, and there is no pull request against
-`vllm-project/vllm`. vLLM discovers platforms through
-`importlib.metadata.entry_points(group="vllm.platform_plugins")`, which reads the
-metadata of whatever distributions are installed, so declaring the entry point
-here and `pip install`ing the wheel is the entire integration step.
+> **Status:** early development. APIs will change.
 
-Out-of-tree plugins are also *preferred over* the built-ins, so on a ROCm host
-this takes precedence over `vllm.platforms.rocm.RocmPlatform` with no patch and
-no environment variable.
+## What works
 
-## Why this name
+- Llama-3.3-70B at TP=8 on 8x MI300X through vLLM's engine, with the KV pool
+  sharded over KV heads.
+- vLLM's chunked prefill, preemption with recompute and prefix caching, each
+  driven by vLLM's own scheduler (`tools/smoke_engine.py`). Greedy output is
+  the same whatever the token budget.
+- The native engine: paged decode token-identical to MaxText's dense path and
+  to a full forward pass, batched prefill, prefix sharing between requests, and
+  a host tier that pages KV out and back.
+- Pages another request wrote are scrubbed before reuse, tested against vLLM's
+  block lifecycle with a negative control.
 
-The discriminator is **JAX**, not the hardware. vLLM already supports ROCm — it
-has a built-in `RocmPlatform` for PyTorch — so what is new here is JAX on AMD,
-not AMD. A `vllm-rocm`-style name would be ambiguous with that existing support,
-and every `vllm-*` backend name (`vllm-ascend`, `vllm-gaudi`, `vllm-spyre`,
-`vllm-tpu`) belongs to the vllm-project organisation, so the prefix would imply
-an ownership this does not have.
+On 8x MI300X, Llama-3.3-70B at TP=8 through vLLM decodes at 34.9 ms per step
+for one request and 23.9 ms for eight, 335 tokens/s, with 130-token prompts.
 
-`-plugin` rather than `-inference` is deliberate too: in the surrounding project
-the `-inference` suffix means a release *image* (`maxtext-vllm-inference`,
-`maxtext-native-inference`), and this is a wheel that goes into one.
+## How MaxText is used
 
-Names derived from the repository, which are not all the same string:
+MaxText supplies the model definitions, configs and checkpoint conversion.
+This repository supplies what inference needs around them:
+
+- `models/adapters/maxtext.py` binds MaxText's `gpu_paged` attention hook to
+  this repository's kernels;
+- `models/adapters/maxtext_vllm.py` wraps a MaxText model as the
+  `MaxTextForCausalLM` the plugin serves;
+- `engine/paged_engine.py` adds the paged entry points to an unmodified
+  `MaxEngine`.
+
+MaxText is pinned at ROCm/maxtext `30105a4c0`, which carries the hook. The next
+pin is `maxtext-v0.2.5`, the release jax-titan uses, with the hook as one small
+patch. MaxDiffusion is the second model provider and is not served yet.
+
+## A plugin, not a fork
+
+No file in vLLM's tree changes. vLLM finds platforms through
+`importlib.metadata.entry_points(group="vllm.platform_plugins")`, so installing
+this wheel is the whole integration step, and out-of-tree plugins take
+precedence over vLLM's built-in ROCm platform.
 
 | what | value |
 |---|---|
-| repository and distribution | `jax-vllm-plugin` |
-| import package | `jax_vllm_plugin` |
-| platform entry point name | `jax_vllm_plugin` |
-| connector entry point name | `jax_vllm_plugin_kv_connector` |
+| repository and distribution | `jax-vllm-gpu` |
+| import package | `jax_vllm_gpu` |
+| platform entry point | `jax_vllm_gpu` |
+| connector entry point | `jax_vllm_gpu_kv_connector` |
 
-The entry point *names* are what `VLLM_PLUGINS` allowlists, and the platform one
-appears in vLLM's `Platform plugin jax_vllm_plugin is activated` log line.
+The entry point names are what `VLLM_PLUGINS` allowlists, and the platform one
+appears in vLLM's `Platform plugin jax_vllm_gpu is activated` log line.
 
-## Scope: one repository per plug socket, not per framework
+## Layout
 
-This repo is vLLM-only, and that is a deliberate rule rather than a current
-state. vLLM offers an entry-point socket, so a wheel is the right artifact and
-this is its home. Other serving frameworks do not necessarily offer one — for
-example sglang-jax declares no entry points and selects backends through
-hardcoded conditionals, so its integration would be commits in *their* tree,
-which no repository of ours can host.
+| Path | Contents |
+|---|---|
+| `src/jax_vllm_gpu/kv/common` | Neutral vocabulary: page table, storage layout and cache namespace. Standard library and numpy only |
+| `src/jax_vllm_gpu/kv/control` | The native engine's page allocator, page map, prefix index and residency. Standard library, numpy and `kv/common` only |
+| `src/jax_vllm_gpu/kv/execution` | The device side: pool allocation and sharding, step views and inputs, shape buckets, the continuous-batching driver, page staging and the host tier |
+| `src/jax_vllm_gpu/ops` | Paged attention and KV append through JAX-AITER, under `shard_map` for tensor parallelism |
+| `src/jax_vllm_gpu/models/adapters` | MaxText: the attention hook and the vLLM model |
+| `src/jax_vllm_gpu/engine` | The native offline engine (`PagedEngine`, `PagedInferenceWorker`) and a torch-free tokenizer |
+| `src/jax_vllm_gpu/plugin` | The vLLM platform plugin: platform, worker, model runner, step pipeline, KV spec and pool, page-table translation, recycled-page tracking and connector registration |
+| `tests/` | CPU and GPU tests. `gpu_only` tests skip when JAX sees no GPU |
+| `tools/` | Smoke runs through vLLM's real engine, and the latency benchmark |
+| `benchmarks/` | Native-engine serving and prefix-cache benchmarks |
+| `.cursor/skills/`, `.claude/skills/` | Agent skill (identical copies): architecture rules and test discipline |
 
-A second frontend joins this repo only if it has a real plugin mechanism **and**
-shares substantial code with the vLLM plugin. Both halves are required; the
-second is what makes co-location pay rather than merely look tidy.
-
-## What lives here, and what deliberately does not
-
-**Here:** the `Platform` implementation, the worker and JAX model runner, the
-attention backend selection, physical KV pool allocation, bucketing and
-precompile, and the KV connector for disaggregation and host offload.
-
-**Not here:**
-
-- **The MaxText model plugin.** `MaxTextForCausalLM` stays in MaxText, because it
-  is built from MaxText internals and has to track model changes; relocating it
-  would fork it from the models it wraps. This repository's job is to *provide
-  the registry it registers into* — the role `tpu_inference` plays for TPU today.
-- **The scheduler, block manager and prefix cache.** vLLM owns all three. MaxText's
-  `PagedDriver` and `kv_control/`'s allocator are bypassed in this mode, while its
-  layout descriptor, page-table translation and bucketing stay in use.
-- **The release image.** `maxtext-vllm-inference` is assembled by
-  `unified-framework-builds` from four wheels — `jax-rocm-pjrt`, `jax-aiter`,
-  `maxtext`, and this one. UFB builds SHA-pinned source; it is not a source home.
-
-## Installation
-
-Dependencies are deliberately **not** declared in `pyproject.toml`. vLLM, JAX and
-jax-aiter all carry artifacts pinned to a ROCm version and a gfx target, so
-letting pip resolve them invites a mismatched (typically CUDA) build that fails
-at load or at first kernel launch. The runtime image supplies a matched set, and
-this wheel is pure Python installed on top.
-
-```bash
-pip install -e .
-pip install -e '.[test]'
-pytest
-```
-
-## Status
-
-Early scaffold, and **nothing in it has been executed yet.** Discovery is written
-and covered by tests; execution is not. `JaxWorker` and `get_attn_backend_cls`
-raise `NotImplementedError` on purpose, so the plugin is discoverable now and
-honest about being unfinished. Note that `test_the_entry_points_are_declared_in_installed_metadata`
-will fail until `pip install -e .` has run, by design — `entry_points` only sees
-the plugin once the distribution is installed.
-
-Two decisions are recorded in code comments rather than settled:
-
-- **`device_type = "cuda"`.** Torch reuses the CUDA device type for ROCm rather
-  than adding one, so anything in vLLM constructing `torch.device(device_type)`
-  needs `"cuda"` here even though this platform does no torch compute. Revisit if
-  a torch-free image makes that construction fail rather than merely go unused.
-- **How the connector reaches MORI.** vLLM already ships a MoRI-IO connector at
-  `vllm/distributed/kv_transfer/kv_connector/v1/moriio/`, but it is thoroughly
-  torch-bound (`register_kv_caches(dict[str, torch.Tensor])`, then `.data_ptr()`
-  and `.element_size()`), so it cannot be handed XLA-owned pool arrays. It is a
-  protocol reference, not a dependency. Whether our connector goes through the
-  host-side `mori.io` API as it does, or through the XLA FFI transfer op over
-  MORI's device-side one-sided puts, is still open.
+[docs/getting_started.md](docs/getting_started.md) covers the environment,
+the tests and the smoke runs.
 
 ## Environment variables
 
 | variable | effect |
 |---|---|
-| `VLLM_JAX_PLATFORM` | `1` forces activation, `0` forces the plugin off. Useful because vLLM swallows exceptions from platform probes, making a probe failure indistinguishable from the wheel being absent. |
-| `VLLM_TARGET_DEVICE` | **Hazard.** Setting it to `cpu` makes vLLM return the CPU platform *before loading any plugin*, so this plugin is never probed and the failure looks like a missing install. Keep it unset. |
+| `VLLM_JAX_PLATFORM` | `1` forces the plugin on, `0` forces it off. vLLM swallows exceptions from platform probes, so a probe failure otherwise looks like the wheel being absent. |
+| `VLLM_PLUGINS` | Allowlist of entry point names. Needed when another JAX platform plugin is installed beside this one, since vLLM refuses to activate two. |
+| `VLLM_TARGET_DEVICE` | **Hazard.** `cpu` makes vLLM return its CPU platform before loading any plugin, so this one is never probed. Keep it unset. |
+
+## Roadmap
+
+- Move to vLLM `5ec99956ad`, tpu-inference's last-known-good. vLLM's KV-cache
+  interface changed (`get_kv_cache_layer_configs`, `KVCacheLayerConfig`), and a
+  preempted request now comes back as a new request.
+- MaxText `maxtext-v0.2.5` with the hook as one carried patch, on jax-titan's
+  container and JAX build, with JAX-AITER as a submodule.
+- Compile the bucketed shape set at startup: an unseen shape costs about 90 s
+  on the 70B today.
+- A KV connector for prefill-decode disaggregation over MORI. It is a stub today.
+- MaxDiffusion models.
+
+## License
+
+Apache License 2.0, see [LICENSE](LICENSE). [NOTICE](NOTICE) lists the code
+derived from MaxText.
