@@ -1,0 +1,85 @@
+diff --git a/csrc/ffi/kv/append_kv_ja.cu b/csrc/ffi/kv/append_kv_ja.cu
+index c9cb348..62b7ed7 100644
+--- a/csrc/ffi/kv/append_kv_ja.cu
++++ b/csrc/ffi/kv/append_kv_ja.cu
+@@ -44,6 +44,7 @@ __global__ void WidenI32ToI64(const int32_t *in, int64_t *out, int64_t n) {
+ }
+ 
+ ffi::Error AppendKv_Bridge(hipStream_t stream, int32_t device_ordinal,
++                           ffi::ScratchAllocator scratch,
+                            ffi::AnyBuffer k_new, ffi::AnyBuffer v_new,
+                            ffi::AnyBuffer slot_mapping, ffi::AnyBuffer k_scale,
+                            ffi::AnyBuffer v_scale, ffi::AnyBuffer k_pool_in,
+@@ -135,16 +136,18 @@ ffi::Error AppendKv_Bridge(hipStream_t stream, int32_t device_ordinal,
+       e.failure())
+     return e;
+ 
+-  int64_t *slots_i64 = nullptr;
+   if (slot_mapping.element_type() == ffi::DataType::S32) {
+-    hipError_t merr = hipMallocAsync(
+-        reinterpret_cast<void **>(&slots_i64),
+-        sizeof(int64_t) * static_cast<size_t>(num_tokens), stream);
+-    if (merr != hipSuccess) {
+-      return ffi::Error(ffi::ErrorCode::kInternal,
+-                        std::string("AppendKvJA: hipMallocAsync for int64 slots: ") +
+-                            hipGetErrorString(merr));
++    // XLA's scratch allocator, not hipMallocAsync: HIP's stream-ordered
++    // allocator blocks the host until the stream drains, which once per layer
++    // keeps the host from ever running ahead of the GPU. The buffer is freed
++    // when the handler returns; reuse is ordered on this stream.
++    std::optional<void *> scratch_slots =
++        scratch.Allocate(sizeof(int64_t) * static_cast<size_t>(num_tokens), alignof(int64_t));
++    if (!scratch_slots.has_value()) {
++      return ffi::Error(ffi::ErrorCode::kResourceExhausted,
++                        "AppendKvJA: no scratch memory for the int64 slots");
+     }
++    int64_t *slots_i64 = static_cast<int64_t *>(*scratch_slots);
+     const int threads = 256;
+     const int blocks =
+         static_cast<int>((num_tokens + threads - 1) / threads);
+@@ -153,7 +156,6 @@ ffi::Error AppendKv_Bridge(hipStream_t stream, int32_t device_ordinal,
+         num_tokens);
+     hipError_t werr = hipGetLastError();
+     if (werr != hipSuccess) {
+-      hipFreeAsync(slots_i64, stream);
+       return ffi::Error(ffi::ErrorCode::kInternal,
+                         std::string("AppendKvJA: int32->int64 widen launch: ") +
+                             hipGetErrorString(werr));
+@@ -162,7 +164,6 @@ ffi::Error AppendKv_Bridge(hipStream_t stream, int32_t device_ordinal,
+                                  ffi::DataType::S64, device_id, &t_slots,
+                                  "slot_mapping");
+         e.failure()) {
+-      hipFreeAsync(slots_i64, stream);
+       return e;
+     }
+   } else if (auto e =
+@@ -171,11 +172,9 @@ ffi::Error AppendKv_Bridge(hipStream_t stream, int32_t device_ordinal,
+     return e;
+   }
+   if (auto e = MakeAiterTensor(k_scale, device_id, &t_kscale, "k_scale"); e.failure()) {
+-    if (slots_i64) hipFreeAsync(slots_i64, stream);
+     return e;
+   }
+   if (auto e = MakeAiterTensor(v_scale, device_id, &t_vscale, "v_scale"); e.failure()) {
+-    if (slots_i64) hipFreeAsync(slots_i64, stream);
+     return e;
+   }
+ 
+@@ -188,9 +187,6 @@ ffi::Error AppendKv_Bridge(hipStream_t stream, int32_t device_ordinal,
+                                  t_slots, dtype_str, t_kscale, t_vscale);
+ 
+   hipError_t err = hipGetLastError();
+-  if (slots_i64) {
+-    hipFreeAsync(slots_i64, stream);
+-  }
+   if (err != hipSuccess) {
+     return ffi::Error(ffi::ErrorCode::kInternal,
+                       std::string("AppendKvJA: reshape_and_cache_flash failed: ") +
+@@ -209,6 +205,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
+     ffi::Ffi::Bind()
+         .Ctx<ffi::PlatformStream<hipStream_t>>()
+         .Ctx<ffi::DeviceOrdinal>()
++        .Ctx<ffi::ScratchAllocator>()
+         .Arg<ffi::AnyBuffer>() // k_new        [num_tokens, num_kv_heads, head_dim]
+         .Arg<ffi::AnyBuffer>() // v_new        [num_tokens, num_kv_heads, head_dim]
+         .Arg<ffi::AnyBuffer>() // slot_mapping [num_tokens] int32
