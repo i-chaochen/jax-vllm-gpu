@@ -29,10 +29,8 @@ runtime serves models two ways:
 - Pages another request wrote are scrubbed before reuse, tested against vLLM's
   block lifecycle with a negative control.
 
-On 8x MI300X, Llama-3.3-70B at TP=8 through vLLM decodes at 39.8 ms per step
-for one request and 28.7 ms for eight, 279 tokens/s, with 130-token prompts.
-The previous stack (ROCm 7.2, jax 0.10.2) measured 35.0 ms and 24.0 ms the same
-day.
+On 8x MI300X, Llama-3.3-70B at TP=8 through vLLM decodes at 34.8 ms per step
+for one request and 25.2 ms for eight, 318 tokens/s, with 130-token prompts.
 
 ## How MaxText is used
 
@@ -86,7 +84,7 @@ appears in vLLM's `Platform plugin jax_vllm_gpu is activated` log line.
 | `tests/` | CPU and GPU tests. `gpu_only` tests skip when JAX sees no GPU |
 | `tools/` | Smoke runs through vLLM's real engine, and the latency benchmark |
 | `benchmarks/` | Native-engine serving and prefix-cache benchmarks |
-| `third_party/` | JAX-AITER as a submodule at jax-titan's pin, and the MaxText hook patch |
+| `third_party/` | JAX-AITER as a submodule at jax-titan's pin, and the patches carried for MaxText and JAX-AITER |
 | `scripts/` | The container, the source trees, the Python environment, the JAX-AITER build and `env.sh` |
 | `vllm_lkg.version` | The vLLM commit |
 | `.github/` | CI, with the pinned wheels and package versions it installs |
@@ -106,11 +104,9 @@ the tests and the smoke runs.
 
 ## Roadmap
 
-- Recover the decode step time lost moving to TheRock 10.1 and jax 0.12.1:
-  14 to 24% at batch 1 to 8, most of it in JAX, XLA and ROCm rather than
-  MaxText.
 - Propose the hook to MaxText as a vendor-neutral external paged-attention
-  provider, and drop the patch once a release carries it.
+  provider, and drop the patch once a release carries it. Send the KV-append
+  fix to JAX-AITER, and report the embedding all-gather to XLA.
 - Compile the bucketed shape set at startup: an unseen shape costs about 90 s
   on the 70B today.
 - A KV connector for prefill-decode disaggregation over MORI. It is a stub today.

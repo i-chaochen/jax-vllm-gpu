@@ -43,6 +43,15 @@ patched either: the plugin is found through the `vllm.platform_plugins` and
 - **Metadata:** whatever reaches the model as attention metadata is a
   registered pytree with its sizes static, because MaxText hands it to each
   layer through `jax.checkpoint`.
+- **Embedding lookup:** under tensor parallelism keep MaxText's
+  `use_iota_embed` on (the platform defaults it). Otherwise XLA all-gathers
+  the vocab-sharded table, 2.1 GB at 70B, on every decode step.
+- **No device allocation in FFI handlers:** `hipMallocAsync` and
+  `hipFreeAsync` block the host until the stream drains. Take scratch memory
+  from XLA's `ffi::ScratchAllocator`.
+- **Read step time against host dispatch:** a jitted step that takes as long
+  to dispatch as to run has something blocking the host; time the dispatch
+  and the `device_get` separately before profiling kernels.
 - **Scale:** pass `scale=1.0` to the kernels. MaxText folds 1/sqrt(head_dim)
   into the query projection, so the kernel's default scales twice.
 - **Donation:** the pool is donated into every step and returned aliased.

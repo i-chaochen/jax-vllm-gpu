@@ -39,7 +39,7 @@ The tested set, 2026-11-19:
 | jax, jaxlib | 0.12.1.dev0, jax-titan's build of jax `6b39d495e5` and XLA `d23c30982a` |
 | jax-rocm10-plugin, jax-rocm10-pjrt | the same build, for gfx942 |
 | MaxText | `maxtext-v0.2.5` (`493d59281`) with the hook patch |
-| JAX-AITER | `third_party/jax-aiter` at `c290cdd`, jax-titan's pin |
+| JAX-AITER | `third_party/jax-aiter` at `c290cdd`, jax-titan's pin, with `third_party/patches/jax-aiter-append-kv-scratch.patch` |
 | vLLM | `5ec99956ad` (`vllm_lkg.version`, tpu-inference's last-known-good), built with `VLLM_TARGET_DEVICE=empty` |
 | torch | 2.14.0, CPU build |
 | Everything else | `.github/ci-constraints.txt` |
@@ -77,7 +77,7 @@ python3 -m venv --system-site-packages $R/venv
 source $R/venv/bin/activate
 WHEELS=<the four wheels> VLLM_SRC=$R/src/vllm MAXTEXT_SRC=$R/src/maxtext \
   scripts/install_python_env.sh
-scripts/build_jax_aiter.sh    # JAX-AITER's KV shims for gfx942
+scripts/build_jax_aiter.sh    # JAX-AITER's KV shims for gfx942, with third_party/patches/jax-aiter-*
 ```
 
 `--system-site-packages` exposes the container's TheRock `rocm` wheels.
@@ -92,11 +92,11 @@ Run one GPU invocation at a time, and from the host wrap each in `timeout`: a
 `docker exec` that never returns blocks every later command in the same shell.
 
 ```bash
-# CPU: gpu_only tests skip. 421 passed, 48 skipped on 2026-11-19.
+# CPU: gpu_only tests skip. 423 passed, 48 skipped on 2026-11-19.
 JAX_PLATFORMS=cpu DECOUPLE_GCLOUD=TRUE python -m pytest tests -q
 
 # GPU: everything, including the KV kernels and the engine parity tests.
-# 468 passed, 1 skipped on 8x MI300X. JAX_VLLM_REQUIRE_GPU=1 fails the run if
+# 470 passed, 1 skipped on 8x MI300X. JAX_VLLM_REQUIRE_GPU=1 fails the run if
 # JAX falls back to the CPU, instead of skipping every GPU test.
 DECOUPLE_GCLOUD=TRUE JAX_VLLM_REQUIRE_GPU=1 python -m pytest tests -q
 
@@ -185,14 +185,22 @@ window, against the previous stack (ROCm 7.2, jax 0.10.2, MaxText
 
 | batch | TTFT | per step | p90 | tokens/s | previous stack, per step | tokens/s |
 |---|---|---|---|---|---|---|
-| 1 | 63.4 ms | 39.8 ms | 48.7 ms | 25.1 | 35.0 ms | 28.6 |
-| 4 | 60.2 ms | 28.2 ms | 40.4 ms | 142.0 | 22.8 ms | 175.3 |
-| 8 | 56.9 ms | 28.7 ms | 99.5 ms | 279.1 | 24.0 ms | 333.3 |
+| 1 | 64.9 ms | 34.8 ms | 39.9 ms | 28.7 | 35.0 ms | 28.6 |
+| 4 | 55.0 ms | 23.4 ms | 42.2 ms | 171.2 | 22.8 ms | 175.3 |
+| 8 | 62.4 ms | 25.2 ms | 36.3 ms | 318.1 | 24.0 ms | 333.3 |
 
-A decode step is 14 to 24% slower on this stack. Most of it is JAX, XLA and
-ROCm rather than MaxText: with the old MaxText on this stack, batch 1 takes
-38.3 ms. Repeated runs vary by up to 10%, so compare within a session.
+Two things this stack does differently cost 14 to 24% per step until fixed:
+- jax 0.12.1's XLA all-gathers the vocab-sharded embedding table, 2.1 GB, to
+  look up one decode token. The platform sets MaxText's `use_iota_embed`,
+  whose one-hot lookup partitions locally. A native-engine caller at TP above
+  1 should set it too.
+- JAX-AITER's KV append allocated with `hipMallocAsync`, which blocks the host
+  until the stream drains, once per layer.
+  `third_party/patches/jax-aiter-append-kv-scratch.patch` uses XLA's scratch
+  allocator instead.
 
-Warming up the shapes took 235 s, 716 s and 1,332 s for the three batch sizes,
+Repeated runs vary by up to 10%, so compare within a session.
+
+Warming up the shapes took 221 s, 119 s and 140 s for the three batch sizes,
 because each unseen shape compiles on first use. Compiling the bucketed shape
 set at startup is on the roadmap.
