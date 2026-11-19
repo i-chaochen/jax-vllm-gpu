@@ -32,10 +32,17 @@ patched either: the plugin is found through the `vllm.platform_plugins` and
   `KVCacheManager` owns them, and `plugin/` never imports `kv/control`
   (`tests/test_ownership_mode.py`).
 - **Attention hook:** MaxText dispatches `attention="gpu_paged"` to
-  `Attention.forward_serve_gpu_paged`. `models/adapters/maxtext.install()`
-  binds it to this repository's implementation and raises if MaxText has no
-  such hook. Bind before building a model; `PagedEngine` and
-  `plugin.registry.register_maxtext` do.
+  `Attention.forward_serve_gpu_paged`, which
+  `third_party/patches/maxtext-gpu-paged-hook.patch` adds to the pinned
+  release. `models/adapters/maxtext.install()` binds it to this repository's
+  implementation and raises if MaxText has no such hook. Bind before building
+  a model; `PagedEngine` and `plugin.registry.register_maxtext` do.
+- **Pool settings:** the native engine's page size, block count and context
+  limit are `engine/config.PagedConfig`'s, never MaxText config keys, which
+  MaxText's config refuses. Under the plugin the pool is vLLM's.
+- **Metadata:** whatever reaches the model as attention metadata is a
+  registered pytree with its sizes static, because MaxText hands it to each
+  layer through `jax.checkpoint`.
 - **Scale:** pass `scale=1.0` to the kernels. MaxText folds 1/sqrt(head_dim)
   into the query projection, so the kernel's default scales twice.
 - **Donation:** the pool is donated into every step and returned aliased.
@@ -106,6 +113,10 @@ patched either: the plugin is found through the `vllm.platform_plugins` and
 
 ## Environment
 
+- The environment is jax-titan's: the TheRock 10.1 container
+  (`scripts/container.sh`), jax-titan's jax and jaxlib, and ROCm plugin wheels
+  of the same build for gfx942. `scripts/install_python_env.sh` installs the
+  rest under `.github/ci-constraints.txt`, and CI runs the same script.
 - Never let pip replace jax or jaxlib, which are self-built ROCm wheels.
   Install anything new under a constraints file that pins them.
 - torch must be the CPU build. A ROCm torch adds a second HIP runtime, which

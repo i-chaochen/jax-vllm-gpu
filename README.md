@@ -29,8 +29,10 @@ runtime serves models two ways:
 - Pages another request wrote are scrubbed before reuse, tested against vLLM's
   block lifecycle with a negative control.
 
-On 8x MI300X, Llama-3.3-70B at TP=8 through vLLM decodes at 34.9 ms per step
-for one request and 23.9 ms for eight, 335 tokens/s, with 130-token prompts.
+On 8x MI300X, Llama-3.3-70B at TP=8 through vLLM decodes at 39.8 ms per step
+for one request and 28.7 ms for eight, 279 tokens/s, with 130-token prompts.
+The previous stack (ROCm 7.2, jax 0.10.2) measured 35.0 ms and 24.0 ms the same
+day.
 
 ## How MaxText is used
 
@@ -42,14 +44,15 @@ This repository supplies what inference needs around them:
 - `models/adapters/maxtext_vllm.py` wraps a MaxText model as the
   `MaxTextForCausalLM` the plugin serves;
 - `engine/paged_engine.py` adds the paged entry points to an unmodified
-  `MaxEngine`.
+  `MaxEngine`, sized by `engine/config.PagedConfig`.
 
-MaxText is pinned at ROCm/maxtext `30105a4c0`, which carries the hook. The next
-pin is `maxtext-v0.2.5`, the release jax-titan uses, which has neither the hook
-nor the paged settings. The hook comes back as one small patch: the `gpu_paged`
-dispatch, the skipped dense-cache init and the returned pool. The paged settings
-move into this repository's config. MaxDiffusion is the second model provider
-and is not served yet.
+MaxText is pinned at `maxtext-v0.2.5`, the release jax-titan uses, with the
+hook as one 35-line patch, `third_party/patches/maxtext-gpu-paged-hook.patch`:
+the `gpu_paged` dispatch, the skipped dense-cache init and the returned pools.
+It holds no vendor code, and is to be proposed upstream as an external
+paged-attention provider. The pool's settings are this repository's, not
+MaxText's. MaxDiffusion is the second model provider, at `821afc36` as in
+jax-titan, and is not served yet.
 
 ## A plugin, not a fork
 
@@ -78,11 +81,15 @@ appears in vLLM's `Platform plugin jax_vllm_gpu is activated` log line.
 | `src/jax_vllm_gpu/kv/execution` | The device side: pool allocation and sharding, step views and inputs, shape buckets, the continuous-batching driver, page staging and the host tier |
 | `src/jax_vllm_gpu/ops` | Paged attention and KV append through JAX-AITER, under `shard_map` for tensor parallelism |
 | `src/jax_vllm_gpu/models/adapters` | MaxText: the attention hook and the vLLM model |
-| `src/jax_vllm_gpu/engine` | The native offline engine (`PagedEngine`, `PagedInferenceWorker`) and a torch-free tokenizer |
+| `src/jax_vllm_gpu/engine` | The native offline engine (`PagedEngine`, `PagedInferenceWorker`), its pool settings (`PagedConfig`) and a torch-free tokenizer |
 | `src/jax_vllm_gpu/plugin` | The vLLM platform plugin: platform, worker, model runner, step pipeline, KV spec and pool, page-table translation, recycled-page tracking and connector registration |
 | `tests/` | CPU and GPU tests. `gpu_only` tests skip when JAX sees no GPU |
 | `tools/` | Smoke runs through vLLM's real engine, and the latency benchmark |
 | `benchmarks/` | Native-engine serving and prefix-cache benchmarks |
+| `third_party/` | JAX-AITER as a submodule at jax-titan's pin, and the MaxText hook patch |
+| `scripts/` | The container, the source trees, the Python environment, the JAX-AITER build and `env.sh` |
+| `vllm_lkg.version` | The vLLM commit |
+| `.github/` | CI, with the pinned wheels and package versions it installs |
 | `.cursor/skills/`, `.claude/skills/` | Agent skill (identical copies): architecture rules and test discipline |
 
 [docs/getting_started.md](docs/getting_started.md) covers the environment,
@@ -99,8 +106,11 @@ the tests and the smoke runs.
 
 ## Roadmap
 
-- MaxText `maxtext-v0.2.5` with the hook as one carried patch, on jax-titan's
-  container and JAX build, with JAX-AITER as a submodule.
+- Recover the decode step time lost moving to TheRock 10.1 and jax 0.12.1:
+  14 to 24% at batch 1 to 8, most of it in JAX, XLA and ROCm rather than
+  MaxText.
+- Propose the hook to MaxText as a vendor-neutral external paged-attention
+  provider, and drop the patch once a release carries it.
 - Compile the bucketed shape set at startup: an unseen shape costs about 90 s
   on the 70B today.
 - A KV connector for prefill-decode disaggregation over MORI. It is a stub today.
