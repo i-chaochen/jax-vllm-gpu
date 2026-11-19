@@ -38,6 +38,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any, Hashable
 
 import numpy as np
@@ -47,8 +48,30 @@ import jax
 from maxtext.inference import inference_utils
 from maxtext.utils import max_logging
 
+from jax_vllm_gpu.engine.config import PagedConfig
 from jax_vllm_gpu.engine.paged_engine import PagedEngine
 from jax_vllm_gpu.kv.execution.driver import PagedDriver, PagedRequest
+
+
+# MaxText's `offline_engine` defines both records with these fields, and cannot
+# be imported without JetStream.
+@dataclasses.dataclass
+class InputData:
+  """One request: its id, its padded prompt tokens and how many are real."""
+
+  id: str
+  tokens: jax.Array | np.ndarray
+  true_length: int
+
+
+@dataclasses.dataclass
+class CompletionOutput:
+  """One finished request: its generated tokens and their log probabilities."""
+
+  index: str
+  token_ids: np.ndarray
+  logprobs: np.ndarray
+  prompt_length: int
 
 
 class PagedInferenceWorker:
@@ -63,6 +86,7 @@ class PagedInferenceWorker:
       eos_ids: list[int] | None,
       max_decode_length: int,
       *,
+      paged: PagedConfig,
       max_requests: int | None = None,
       max_batched_tokens: int | None = None,
       rng: jax.random.PRNGKey = None,
@@ -78,7 +102,7 @@ class PagedInferenceWorker:
     self.rng = jax.random.PRNGKey(0) if rng is None else rng
     self.debug = debug
 
-    self.engine = PagedEngine(self.config, self.devices)
+    self.engine = PagedEngine(self.config, self.devices, paged=paged)
     self.params = self.engine.load_params(params=params, rng=self.rng)
     if self.tokenizer is None:
       self.tokenizer = self._build_tokenizer()
@@ -151,17 +175,14 @@ class PagedInferenceWorker:
     """Run every input to completion and return one output each, in input order.
 
     Args:
-      data: `offline_engine.InputData`, whose `tokens` are padded and whose
-        `true_length` says how much of that is real.
+      data: `InputData`, whose `tokens` are padded and whose `true_length` says
+        how much of that is real.
       rng: overrides the worker's key when given.
 
     Returns:
-      One `offline_engine.CompletionOutput` per input, in the order supplied --
-      *not* completion order, which paging makes arbitrary.
+      One `CompletionOutput` per input, in the order supplied -- *not*
+      completion order, which paging makes arbitrary.
     """
-    # pylint: disable=import-outside-toplevel
-    from maxtext.inference.offline_engine import CompletionOutput
-
     if rng is not None:
       self.rng = rng
     if not data:
@@ -206,7 +227,7 @@ class PagedInferenceWorker:
           # Bounded by the pool's own context limit as well as the caller's, since
           # a request that cannot fit is rejected at admission rather than part way
           # through generating.
-          max_new_tokens=min(self.max_decode_length, self.config.paged_max_context_len - int(row.true_length)),
+          max_new_tokens=min(self.max_decode_length, self.engine.paged.max_context_len - int(row.true_length)),
           prompt_tokens=prompt,
       )
       requests.append(request)

@@ -7,11 +7,12 @@ count. The platform already forces `distributed_executor_backend="uni"` to make
 that true.
 
 **Axis names are not ours to choose.** MaxText loads
-`configs/inference/vllm.yml`, whose `logical_axis_rules` name the mesh axes
-`data`, `attn_dp`, `model`, `expert` and `attn_dp_expert`. Those rules are
-applied by the model itself, so a mesh spelling the tensor-parallel axis
-anything else -- `tensor`, say, which is what MaxText's *own* configs use --
-resolves to no mesh axis and silently replicates what should be sharded.
+`configs/inference/vllm.yml`, whose `mesh_axes` are `data`, `attn_dp`, `model`,
+`expert`, `attn_dp_expert`, `dcp` and `pcp`, and whose `logical_axis_rules`
+name them. Those rules are applied by the model itself, so a mesh spelling the
+tensor-parallel axis anything else -- `tensor`, say, which is what MaxText's
+*own* configs use -- resolves to no mesh axis and silently replicates what
+should be sharded.
 """
 
 from __future__ import annotations
@@ -21,9 +22,10 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# In `configs/inference/vllm.yml` order. The mesh must carry all five even when
-# four of them are size 1, because the logical rules reference them by name.
-MESH_AXES = ("data", "attn_dp", "model", "expert", "attn_dp_expert")
+# In `configs/inference/vllm.yml` order. The mesh carries every one of them even
+# when only the tensor axis is larger than 1, because the logical rules
+# reference them by name.
+MESH_AXES = ("data", "attn_dp", "model", "expert", "attn_dp_expert", "dcp", "pcp")
 
 # The axis vLLM's tensor_parallel_size becomes. Under vllm.yml's rules this is
 # what `heads`, `kv_heads` and `paged_kv_heads` all map onto, so it shards the
@@ -60,7 +62,7 @@ def build_mesh(tensor_parallel_size: int, devices: Any | None = None) -> Any:
     # request asked for should serve on the requested number, not silently widen
     # the mesh and change the sharding.
     selected = available[:tensor_parallel_size]
-    shape = (1, 1, tensor_parallel_size, 1, 1)
+    shape = tuple(tensor_parallel_size if axis == TENSOR_AXIS else 1 for axis in MESH_AXES)
     mesh = Mesh(np.asarray(selected).reshape(shape), MESH_AXES)
     logger.info(
         "Serving mesh: %s over %d device(s) %s.",

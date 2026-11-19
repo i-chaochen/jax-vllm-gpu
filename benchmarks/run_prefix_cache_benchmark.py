@@ -58,6 +58,7 @@ from flax.linen import partitioning as nn_partitioning
 
 from maxtext.common.common_types import MODEL_MODE_PREFILL
 from maxtext.configs import pyconfig
+from jax_vllm_gpu.engine.config import PagedConfig
 from jax_vllm_gpu.kv.common import CacheNamespace
 from jax_vllm_gpu.kv.execution import benchmark
 from maxtext.utils import maxtext_utils, model_creation_utils
@@ -78,7 +79,6 @@ BASE_CONFIG = {
     "decode_sampling_strategy": "greedy",
     "enable_checkpointing": False,
     "skip_jax_distributed_system": True,
-    "pure_nnx": True,
     "attention": "gpu_paged",
 }
 
@@ -90,12 +90,17 @@ def build_config(args, prefix_cache: bool):
   overrides["base_mlp_dim"] = args.emb_dim * 4
   overrides["max_target_length"] = args.max_context
   overrides["max_prefill_predict_length"] = args.max_prompt
-  overrides["paged_page_size"] = args.page_size
-  overrides["paged_num_blocks"] = args.pool_tokens // args.page_size
-  overrides["paged_max_context_len"] = args.max_context
-  overrides["paged_enable_prefix_cache"] = prefix_cache
   overrides["run_name"] = f"prefix_bench_{'on' if prefix_cache else 'off'}"
   return pyconfig.initialize([sys.argv[0], args.config_path], **overrides)
+
+
+def build_pool(args, prefix_cache: bool) -> PagedConfig:
+  return PagedConfig(
+      page_size=args.page_size,
+      num_blocks=args.pool_tokens // args.page_size,
+      max_context_len=args.max_context,
+      enable_prefix_cache=prefix_cache,
+  )
 
 
 def build_params(cfg, devices):
@@ -165,7 +170,7 @@ def run_arm(args, devices, prefix_cache: bool):
   from jax_vllm_gpu.engine.paged_engine import PagedEngine
 
   cfg = build_config(args, prefix_cache)
-  engine = PagedEngine(cfg, devices)
+  engine = PagedEngine(cfg, devices, paged=build_pool(args, prefix_cache))
   params = engine.load_params(params=build_params(cfg, devices))
   engine.init_paged_runtime(max_requests=args.max_batch, max_batched_tokens=args.max_prompt)
 

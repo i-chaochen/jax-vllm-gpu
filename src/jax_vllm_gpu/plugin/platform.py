@@ -36,8 +36,8 @@ FORCE_ENV_VAR = "VLLM_JAX_PLATFORM"
 # initialise a backend as a side effect of mere platform detection.
 _AMD_KFD_DEVICE = "/dev/kfd"
 
-# Matches MaxText's paged_page_size default and the page sizes the aiter paged
-# kernels accept (16 or 32), so vLLM's block_size and our pool agree by default.
+# One of the two page sizes the aiter paged kernels accept (16 or 32), and the
+# native engine's default.
 DEFAULT_TOKENS_PER_PAGE = 16
 
 # MaxText's attention mode for the AMD paged path. Its `forward_serve_gpu_paged`
@@ -195,42 +195,32 @@ class JaxPlatform(Platform):
 
         An explicit incompatible setting is rejected: the model runner always
         supplies jax-aiter's paged KV ABI, which no other attention can honor.
+        The pool's size and page size are vLLM's, so MaxText is given neither.
         """
         additional = getattr(vllm_config, "additional_config", None)
         if additional is None:
             additional = {}
             vllm_config.additional_config = additional
-        block_size = vllm_config.cache_config.block_size
         maxtext_config = additional.setdefault("maxtext_config", {})
         maxtext_config.setdefault("attention", PAGED_ATTENTION_MODE)
-        maxtext_config.setdefault("paged_page_size", block_size)
 
         if maxtext_config["attention"] != PAGED_ATTENTION_MODE:
             raise ValueError(
                 "The JAX vLLM runner requires MaxText attention='gpu_paged', "
                 f"got {maxtext_config['attention']!r}"
             )
-        if int(maxtext_config["paged_page_size"]) != block_size:
+        if maxtext_config.get("scan_layers"):
             raise ValueError(
-                "MaxText paged_page_size must match vLLM block_size, got "
-                f"{maxtext_config['paged_page_size']} and {block_size}"
+                "attention='gpu_paged' requires scan_layers=False. Scanning stacks "
+                "the per-layer KV caches into the scan carry, which copies the "
+                "whole page pool every step."
             )
 
         # MaxText's own context bound. Left at its default it is shorter than
-        # what vLLM will admit, and `gpu_paged` validation compares the two, so
-        # a long request would be rejected by the model rather than by the
-        # scheduler that is supposed to be bounding it.
+        # what vLLM will admit, so a long request would be rejected by the model
+        # rather than by the scheduler that is supposed to be bounding it.
         max_model_len = int(vllm_config.model_config.max_model_len)
         maxtext_config.setdefault("max_target_length", max_model_len)
-
-        # Inert here, and required to be set. `paged_num_blocks` sizes the pool
-        # MaxText would allocate for itself, but under this platform vLLM owns
-        # allocation and `attentions.py` skips `init_kv_caches` entirely -- so
-        # nothing is allocated from this number. It still has to clear
-        # validation, which insists a single longest request fits.
-        maxtext_config.setdefault(
-            "paged_num_blocks", -(-max_model_len // block_size)
-        )
 
     @classmethod
     def validate_request(cls, processed_inputs, params) -> None:

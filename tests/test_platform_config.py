@@ -94,13 +94,21 @@ def test_maxtext_is_pointed_at_gpu_paged_attention():
     assert config.additional_config["maxtext_config"]["attention"] == "gpu_paged"
 
 
-def test_the_page_size_handed_to_maxtext_matches_vllms_block_size():
-    """Two names for one number. If they disagree, the page table indexes pages
-    of a size the pool was not built with."""
+def test_maxtext_is_given_no_pool_settings():
+    """vLLM sizes the pool and its pages, and MaxText's config refuses keys it
+    does not define."""
     config = make_config(user_specified_block_size=True, block_size=32)
     JaxPlatform.check_and_update_config(config)
 
-    assert config.additional_config["maxtext_config"]["paged_page_size"] == 32
+    assert not [k for k in config.additional_config["maxtext_config"] if k.startswith("paged_")]
+
+
+def test_scanned_layers_are_rejected():
+    """Scanning would copy the whole pool every step: a slowdown, not an error."""
+    config = make_config(additional_config={"maxtext_config": {"scan_layers": True}})
+
+    with pytest.raises(ValueError, match="scan_layers=False"):
+        JaxPlatform.check_and_update_config(config)
 
 
 def test_maxtexts_context_bound_covers_what_vllm_will_admit():
@@ -113,31 +121,10 @@ def test_maxtexts_context_bound_covers_what_vllm_will_admit():
     assert config.additional_config["maxtext_config"]["max_target_length"] == 32768
 
 
-def test_maxtext_gets_a_block_count_large_enough_for_one_full_request():
-    """The number is inert -- vLLM owns allocation and MaxText skips
-    init_kv_caches in this mode -- but gpu_paged validation still rejects a
-    figure too small to hold a single longest request."""
-    config = make_config(max_model_len=2048, user_specified_block_size=True, block_size=32)
-    JaxPlatform.check_and_update_config(config)
-
-    assert config.additional_config["maxtext_config"]["paged_num_blocks"] == 64
-
-
 def test_an_incompatible_attention_choice_is_rejected():
     config = make_config(additional_config={"maxtext_config": {"attention": "dot_product"}})
 
     with pytest.raises(ValueError, match="requires MaxText attention='gpu_paged'"):
-        JaxPlatform.check_and_update_config(config)
-
-
-def test_mismatched_page_sizes_are_rejected():
-    config = make_config(
-        block_size=16,
-        user_specified_block_size=True,
-        additional_config={"maxtext_config": {"paged_page_size": 32}},
-    )
-
-    with pytest.raises(ValueError, match="must match vLLM block_size"):
         JaxPlatform.check_and_update_config(config)
 
 

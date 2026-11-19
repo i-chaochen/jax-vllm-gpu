@@ -24,8 +24,7 @@ slot advancing in lockstep, a cache copied into a batch row at insert time --
 does not survive contact with a page pool, so the paged path sits beside it
 rather than inside it, and nothing on the dense path calls into it.
 
-The forward pass is NNX only (`pure_nnx=True`): the paged step threads the pool
-through the model and back out, which MaxText's NNX model supports.
+The paged step threads the pool through MaxText's NNX model and back out.
 """
 
 from __future__ import annotations
@@ -45,14 +44,19 @@ from maxtext.inference import inference_utils
 from maxtext.inference.maxengine import maxengine
 from maxtext.utils import max_logging
 
+from jax_vllm_gpu.engine.config import PagedConfig
 from jax_vllm_gpu.models.adapters import maxtext as maxtext_adapter
 
 
 class PagedEngine(maxengine.MaxEngine):
-  """A MaxEngine whose requests hold pages of a shared pool instead of a slot."""
+  """A MaxEngine whose requests hold pages of a shared pool instead of a slot.
 
-  def __init__(self, config: Any, devices: Any = None):
+  `paged` sizes the pool. Without it the engine serves only MaxText's dense path.
+  """
+
+  def __init__(self, config: Any, devices: Any = None, *, paged: PagedConfig | None = None):
     maxtext_adapter.install()
+    self.paged = paged.resolve(config) if paged is not None else None
     super().__init__(config, devices)
     # Set by `init_paged_runtime`. Left None so that `release`/`release_pages`
     # degrade to a log line on every other attention mode rather than requiring
@@ -114,19 +118,12 @@ class PagedEngine(maxengine.MaxEngine):
     from jax_vllm_gpu.kv.control import NativeKvControlPlane
     from jax_vllm_gpu.kv.execution.bucketing import StepShapePlanner
     from jax_vllm_gpu.kv.execution.engine_adapter import PagedRuntime
-    from jax_vllm_gpu.kv.execution.layout_builder import build_storage_layout
     from jax_vllm_gpu.kv.execution.pool_factory import allocate_pool
 
-    if self.config.attention != "gpu_paged":
-      raise ValueError(
-          f"init_paged_runtime requires attention='gpu_paged', but this engine is configured for "
-          f"'{self.config.attention}'."
-      )
-    # MaxText releases without the field are NNX only.
-    if not getattr(self.config, "pure_nnx", True):
-      raise ValueError("the paged engine runs MaxText's NNX model; set pure_nnx=True.")
+    if self.paged is None:
+      raise ValueError("init_paged_runtime needs the engine built with paged=PagedConfig(...).")
 
-    layout = build_storage_layout(self.config, self._mesh)
+    layout = self._paged_layout()
     if layout.num_kv_heads and layout.kv_head_shards > layout.num_kv_heads:
       # Over-sharding the head axis itself is the one layout with nowhere to go:
       # `kv_pool_sharding` has to split the tensor axis into a head-selecting and
@@ -161,13 +158,13 @@ class PagedEngine(maxengine.MaxEngine):
     control_plane = NativeKvControlPlane(
         layout=layout,
         max_requests=max_requests,
-        max_context_len=self.config.paged_max_context_len,
-        enable_prefix_cache=self.config.paged_enable_prefix_cache,
+        max_context_len=self.paged.max_context_len,
+        enable_prefix_cache=self.paged.enable_prefix_cache,
     )
     planner = StepShapePlanner(
         tokens_per_page=layout.tokens_per_page,
         max_batch=max_requests,
-        max_context_len=self.config.paged_max_context_len,
+        max_context_len=self.paged.max_context_len,
         pool_pages=layout.num_pages,
         max_batched_tokens=max_batched_tokens,
     )
@@ -175,9 +172,20 @@ class PagedEngine(maxengine.MaxEngine):
         control_plane=control_plane,
         pool=allocate_pool(layout, sharding=self.kv_pool_sharding()),
         planner=planner,
-        poison_on_free=bool(getattr(self.config, "paged_poison_freed_pages", False)),
+        poison_on_free=self.paged.poison_freed_pages,
     )
     return self.paged_runtime
+
+  def _paged_layout(self):
+    # pylint: disable=import-outside-toplevel
+    from jax_vllm_gpu.kv.execution.layout_builder import build_storage_layout
+
+    return build_storage_layout(
+        self.config,
+        self._mesh,
+        tokens_per_page=self.paged.page_size,
+        usable_pages=self.paged.num_blocks,
+    )
 
   def kv_pool_sharding(self):
     """Sharding for one layer's pool array, or None while unsharded.
@@ -189,11 +197,11 @@ class PagedEngine(maxengine.MaxEngine):
     exceeds the KV head count and heads are replicated rather than divided.
     """
     # pylint: disable=import-outside-toplevel
-    from jax_vllm_gpu.kv.execution.layout_builder import build_storage_layout, kv_pool_sharding
+    from jax_vllm_gpu.kv.execution.layout_builder import kv_pool_sharding
 
-    if self.config.attention != "gpu_paged":
+    if self.paged is None:
       return None
-    return kv_pool_sharding(self._mesh, build_storage_layout(self.config, self._mesh))
+    return kv_pool_sharding(self._mesh, self._paged_layout())
 
   def _paged_pool_arrays(self):
     """The pool as the nested list `kv_caches` expects: one `[k, v]` per layer."""
@@ -452,7 +460,7 @@ class PagedEngine(maxengine.MaxEngine):
 
     runtime = self.paged_runtime
     prompt_len = int(true_length)
-    budget = self.config.paged_max_context_len - prompt_len
+    budget = self.paged.max_context_len - prompt_len
     handle = runtime.admit(
         request_id=request_id if request_id is not None else f"req-{uuid.uuid4()}",
         prompt_len=prompt_len,

@@ -14,7 +14,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-These cover the metadata conversion and the config guards, none of which needs a
+These cover the metadata conversion and the config, none of which needs a
 kernel. The end-to-end numerical check against the dense path lives in
 `tests/test_attention_layer.py`, which has the mesh and config fixtures.
 """
@@ -28,6 +28,7 @@ import numpy as np
 import jax.numpy as jnp
 
 from maxtext.configs import pyconfig
+from jax_vllm_gpu.engine.config import PagedConfig
 from jax_vllm_gpu.kv.common import KvPageTableV1
 from jax_vllm_gpu.ops import paged_attention as gpa
 from maxtext_test_config import get_test_config_path
@@ -158,8 +159,8 @@ class BackendSelectionTest(parameterized.TestCase):
       gpa.paged_attention_step(None, None, None, None, None, None, backend="nope")
 
 
-class ConfigGuardTest(parameterized.TestCase):
-  """`gpu_paged` must be accepted, and its one pathological combination refused."""
+class ConfigTest(parameterized.TestCase):
+  """MaxText must accept `gpu_paged`, and the engine's paged settings must resolve against it."""
 
   base_arguments = {
       "per_device_batch_size": 1.0,
@@ -173,41 +174,15 @@ class ConfigGuardTest(parameterized.TestCase):
     arguments.update(overrides)
     return pyconfig.initialize([sys.argv[0], get_test_config_path()], **arguments)
 
-  def _paged(self, **overrides):
-    arguments = {"attention": "gpu_paged", "scan_layers": False, "paged_num_blocks": 256}
-    arguments.update(overrides)
-    return self._config(**arguments)
-
   def test_gpu_paged_is_an_accepted_attention_value(self):
-    cfg = self._paged()
+    cfg = self._config(attention="gpu_paged", scan_layers=False)
     self.assertEqual(cfg.attention, "gpu_paged")
-    self.assertEqual(cfg.paged_attention_backend, "auto")
-    self.assertEqual(cfg.paged_page_size, TOKENS_PER_PAGE)
 
-  def test_scan_layers_is_refused(self):
-    """Scanning stacks the caches, which would copy the whole pool every step."""
-    with self.assertRaisesRegex(ValueError, "scan_layers=False"):
-      self._paged(scan_layers=True)
-
-  def test_a_pool_size_is_required(self):
-    """Capacity has no safe default: too small caps concurrency silently."""
-    with self.assertRaisesRegex(ValueError, "paged_num_blocks"):
-      self._config(attention="gpu_paged", scan_layers=False)
-
-  def test_the_context_length_defaults_to_the_target_length(self):
-    """max_target_length already states the longest sequence to be served."""
-    cfg = self._paged()
-    self.assertEqual(cfg.paged_max_context_len, cfg.max_target_length)
-
-  def test_a_pool_too_small_for_one_request_is_refused(self):
-    """Otherwise this surfaces as backpressure that never clears."""
-    with self.assertRaisesRegex(ValueError, "no request could ever finish"):
-      self._paged(paged_num_blocks=2, paged_max_context_len=1024)
-
-  def test_other_attention_kernels_are_unaffected_by_the_guards(self):
-    cfg = self._config(attention="dot_product", scan_layers=True)
-    self.assertEqual(cfg.attention, "dot_product")
-    self.assertEqual(cfg.paged_num_blocks, 0)
+  def test_paged_settings_resolve_against_a_maxtext_config(self):
+    cfg = self._config(attention="gpu_paged", scan_layers=False)
+    paged = PagedConfig(num_blocks=256).resolve(cfg)
+    self.assertEqual(paged.page_size, TOKENS_PER_PAGE)
+    self.assertEqual(paged.max_context_len, cfg.max_target_length)
 
 
 if __name__ == "__main__":
