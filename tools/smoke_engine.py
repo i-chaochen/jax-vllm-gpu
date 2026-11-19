@@ -4,8 +4,8 @@
 `smoke_worker.py` calls the worker in the executor's order but fabricates the
 scheduler's messages, so it can only ever confirm that the worker agrees with
 *this repository's* reading of what vLLM sends. Every assumption about the
-scheduler's vocabulary — when `num_computed_tokens` advances, whether a resumed
-request's blocks replace or extend, which block ids can be recycled — is encoded
+scheduler's vocabulary — when `num_computed_tokens` advances, how a preempted
+request comes back, which block ids can be recycled — is encoded
 identically in the harness and in the code under test, so a shared misreading
 passes green.
 
@@ -17,7 +17,7 @@ reaches the interesting paths:
     --mode chunked   a prompt longer than max_num_batched_tokens, so a request
                      spans several steps and must emit no token until done
     --mode preempt   more concurrent context than the pool holds, so vLLM must
-                     evict and later resume, replacing a request's block table
+                     evict a request and later send it again as a new one
     --mode prefix    a shared prompt prefix, so blocks arrive via a cache hit
                      rather than a fresh allocation and must not be scrubbed
 """
@@ -143,9 +143,10 @@ def main() -> int:
     )
 
     log.info(
-        "Scheduler did %d step(s): %d resumed-after-preemption, %d chunked-prefill, "
-        "%d prefix-cache-hit.",
+        "Scheduler did %d step(s): %d preempted, %d resumed-after-preemption, "
+        "%d chunked-prefill, %d prefix-cache-hit.",
         Observed.steps,
+        Observed.preempted,
         Observed.resumed,
         Observed.chunked,
         Observed.cache_hits,
@@ -201,14 +202,17 @@ class Observed:
     scheduler emits no preemption message, and with multiprocessing on it runs
     in another process where this handler never sees anything. Reading
     `SchedulerOutput` directly also observes the thing that matters rather than
-    a proxy for it -- `resumed_req_ids` is precisely the field whose meaning
-    `BatchState` had to assume.
+    a proxy for it: a resume is a new request carrying an id the scheduler has
+    already sent, precisely the case `BatchState` has to retire before it
+    admits.
     """
 
+    preempted = 0
     resumed = 0
     chunked = 0
     cache_hits = 0
     steps = 0
+    seen: set[str] = set()
 
 
 def observe_scheduler(llm) -> bool:
@@ -227,20 +231,21 @@ def observe_scheduler(llm) -> bool:
     def schedule(*args, **kwargs):
         output = original(*args, **kwargs)
         Observed.steps += 1
-        cached = getattr(output, "scheduled_cached_reqs", None)
-        Observed.resumed += len(getattr(cached, "resumed_req_ids", ()) or ())
+        Observed.preempted += len(output.preempted_req_ids or ())
 
         # These two look identical if you only compare scheduled tokens against
-        # prompt length -- both schedule fewer -- and they exercise opposite
+        # prefill length -- both schedule fewer -- and they exercise opposite
         # halves of the reuse tracker, so they are counted apart. A cache hit
         # arrives with tokens *already computed*; a chunk is simply cut short.
-        for new in getattr(output, "scheduled_new_reqs", ()) or ():
-            prompt_len = len(new.prompt_token_ids or ())
+        for new in output.scheduled_new_reqs:
+            if new.req_id in Observed.seen:
+                Observed.resumed += 1
+            Observed.seen.add(new.req_id)
             computed = new.num_computed_tokens
             scheduled = output.num_scheduled_tokens.get(new.req_id, 0)
             if computed:
                 Observed.cache_hits += 1
-            if computed + scheduled < prompt_len:
+            if computed + scheduled < len(new.prefill_token_ids):
                 Observed.chunked += 1
         return output
 

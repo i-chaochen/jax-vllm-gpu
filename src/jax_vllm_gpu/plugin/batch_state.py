@@ -10,11 +10,12 @@ Three cases have to be distinguished and the difference is not cosmetic:
 * a **new** request arrives with its complete block table,
 * a **continuing** request arrives with only the blocks appended this step,
   which are appended to what we already hold,
-* a **resumed-from-preemption** request arrives with a block table that
-  *replaces* what we hold, because vLLM may have freed and reallocated it.
+* a **preempted** request is named in `preempted_req_ids`: it has given up its
+  blocks, so its state is dropped, and vLLM sends it again later as a new
+  request with a fresh block table.
 
-Treating the third as the second silently produces a page table naming pages the
-request no longer owns.
+Keeping a preempted request's blocks silently produces a page table naming pages
+the request no longer owns.
 """
 
 from __future__ import annotations
@@ -23,6 +24,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .page_table import RequestPages
+
+
+def retired_request_ids(scheduler_output: Any) -> set[str]:
+    """Requests whose state ends with this scheduler output: finished or preempted."""
+    finished = getattr(scheduler_output, "finished_req_ids", None) or ()
+    preempted = getattr(scheduler_output, "preempted_req_ids", None) or ()
+    return set(finished) | set(preempted)
 
 
 @dataclass
@@ -69,10 +77,10 @@ class BatchState:
 
     def apply(self, scheduler_output: Any) -> None:
         """Fold one `SchedulerOutput` into the accumulated state."""
-        # Retire before admitting: request ids are caller-controlled, and one
-        # can finish and be reused in the same scheduler output.
-        for finished in getattr(scheduler_output, "finished_req_ids", ()) or ():
-            self._requests.pop(finished, None)
+        # Retire before admitting: a finished request's id can be reused, and a
+        # preempted request can come back, in the same scheduler output.
+        for request_id in retired_request_ids(scheduler_output):
+            self._requests.pop(request_id, None)
 
         for new in getattr(scheduler_output, "scheduled_new_reqs", ()) or ():
             if new.req_id in self._requests:
@@ -89,7 +97,6 @@ class BatchState:
 
     def _apply_cached(self, cached: Any) -> None:
         req_ids = list(cached.req_ids)
-        resumed = set(getattr(cached, "resumed_req_ids", ()) or ())
         new_block_ids = list(cached.new_block_ids)
         num_computed = list(cached.num_computed_tokens)
 
@@ -110,11 +117,7 @@ class BatchState:
             state.num_computed_tokens = computed
             if blocks is None:
                 continue
-            appended = _single_group(blocks, request_id)
-            if request_id in resumed:
-                state.block_ids = appended
-            else:
-                state.block_ids.extend(appended)
+            state.block_ids.extend(_single_group(blocks, request_id))
 
     def pages_for_step(self, scheduler_output: Any) -> list[RequestPages]:
         """Assemble this step's per-request pages, in a stable order.

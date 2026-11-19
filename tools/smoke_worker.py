@@ -55,6 +55,7 @@ def scheduler_output(prompts, block_size, next_block):
                 block_ids=(blocks,),
                 num_computed_tokens=0,
                 lora_request=None,
+                prefill_token_ids=list(tokens),
             )
         )
         scheduled[request_id] = len(tokens)
@@ -66,7 +67,6 @@ def scheduler_output(prompts, block_size, next_block):
         total_num_scheduled_tokens=sum(scheduled.values()),
         scheduled_spec_decode_tokens={},
         scheduled_encoder_inputs={},
-        num_common_prefix_blocks=[0],
         finished_req_ids=set(),
         free_encoder_mm_hashes=[],
     )
@@ -85,9 +85,7 @@ def decode_output(previous, sampled, block_size, next_block, lengths):
 
     cached = CachedRequestData(
         req_ids=req_ids,
-        resumed_req_ids=set(),
         new_token_ids=[[] for _ in req_ids],
-        all_token_ids={},
         new_block_ids=new_block_ids,
         num_computed_tokens=[lengths[r] for r in req_ids],
         num_output_tokens=[1 for _ in req_ids],
@@ -99,7 +97,6 @@ def decode_output(previous, sampled, block_size, next_block, lengths):
         total_num_scheduled_tokens=len(req_ids),
         scheduled_spec_decode_tokens={},
         scheduled_encoder_inputs={},
-        num_common_prefix_blocks=[0],
         finished_req_ids=set(),
         free_encoder_mm_hashes=[],
     )
@@ -163,12 +160,18 @@ def main() -> int:
     worker.load_model()
     stage("load_model")
 
-    spec = worker.get_kv_cache_spec()
-    log.info("KV cache spec: %d layers, first=%s", len(spec), next(iter(spec.values())))
+    layer_configs = worker.get_kv_cache_layer_configs()
+    log.info(
+        "KV cache layers: %d, first=%s",
+        len(layer_configs),
+        next(iter(layer_configs.values())).spec,
+    )
     available = worker.determine_available_memory()
     stage("determine_available_memory")
 
-    kv_cache_config = _kv_cache_config(spec, available, args.kv_blocks)
+    kv_cache_config = _kv_cache_config(
+        config, worker, layer_configs, available, args.kv_blocks
+    )
     log.info("vLLM sized the pool at %d blocks.", kv_cache_config.num_blocks)
     worker.initialize_from_config(kv_cache_config)
     stage("initialize_from_config")
@@ -221,43 +224,38 @@ def _step(worker, scheduler_output):
     return worker.sample_tokens(None) if output is None else output
 
 
-def _kv_cache_config(spec, available_bytes, block_cap):
-    """Build the `KVCacheConfig` the engine would, without importing the engine.
+def _kv_cache_config(config, worker, layer_configs, available_bytes, block_cap):
+    """Plan the KV cache the way the engine core does, capped at `block_cap`.
 
-    vLLM's own `get_kv_cache_configs` lives in `v1.core.kv_cache_utils`, which
-    transitively loads xgrammar -- and xgrammar's native binding aborts this
-    image at the dynamic linker, so importing it would take the process down for
-    reasons that have nothing to do with the worker.
-
-    Deriving the count here is not much of a stand-in, because the arithmetic is
-    the whole of what that function does for a uniform full-attention model:
-    total bytes over the summed per-layer page size. The worker itself reads
-    only `num_blocks`.
+    The cap goes in as `num_gpu_blocks_override`, which vLLM's planner honours,
+    so the plan and the block count the worker receives agree.
     """
-    from vllm.v1.kv_cache_interface import KVCacheConfig, KVCacheGroupSpec, KVCacheTensor
+    from vllm.v1.attention.backends.utils import resolve_kv_cache_layout
+    from vllm.v1.core.kv_cache_planning import (
+        get_global_kv_cache_groups,
+        get_kv_cache_configs,
+    )
 
-    layer_names = list(spec)
-    per_block = sum(layer.page_size_bytes for layer in spec.values())
-    num_blocks = min(available_bytes // per_block, block_cap)
-    if num_blocks <= 0:
+    per_block = sum(layer.spec.page_size_bytes for layer in layer_configs.values())
+    if available_bytes < per_block:
         raise ValueError(
             f"{available_bytes} bytes does not hold one block of {per_block}"
         )
-
-    one = spec[layer_names[0]]
-    return KVCacheConfig(
-        num_blocks=int(num_blocks),
-        kv_cache_tensors=[
-            KVCacheTensor(
-                size=int(num_blocks) * one.page_size_bytes,
-                layers=[name],
-                layer_stride=0,
-                block_stride=one.page_size_bytes,
-            )
-            for name in layer_names
-        ],
-        kv_cache_groups=[KVCacheGroupSpec(layer_names=layer_names, kv_cache_spec=one)],
+    config.cache_config.num_gpu_blocks_override = min(
+        available_bytes // per_block, block_cap
     )
+
+    layout = resolve_kv_cache_layout(
+        config, [worker.get_supported_kv_cache_layouts()], layer_configs.values()
+    )
+    groups = get_global_kv_cache_groups(config, [layer_configs])
+    worker.set_kv_cache_layout(
+        layout.name, config.parallel_config.cp_kv_cache_interleave_size
+    )
+    (kv_cache_config,) = get_kv_cache_configs(
+        config, [layer_configs], [available_bytes], groups
+    )
+    return kv_cache_config
 
 
 def _split(item: str):

@@ -11,7 +11,7 @@ import torch
 
 from jax_vllm_gpu.plugin.kv_spec import (
     blocks_that_fit,
-    build_kv_cache_spec,
+    build_kv_cache_layer_configs,
     build_layout,
     layer_names,
 )
@@ -28,7 +28,9 @@ def test_layer_names_are_stable_and_one_per_layer():
 
 
 def test_the_spec_has_one_entry_per_layer_and_vllm_can_size_it():
-    spec = build_kv_cache_spec(
+    from vllm.v1.core.single_type_kv_cache_manager import FullAttentionManager
+
+    configs = build_kv_cache_layer_configs(
         num_layers=4,
         num_kv_heads=8,
         head_size=128,
@@ -36,10 +38,21 @@ def test_the_spec_has_one_entry_per_layer_and_vllm_can_size_it():
         block_size=16,
     )
 
-    assert len(spec) == 4
-    one = next(iter(spec.values()))
+    assert len(configs) == 4
+    one = next(iter(configs.values()))
+    assert one.manager_cls is FullAttentionManager
     # 16 tokens * 8 heads * 128 dim * 2 bytes * (K and V)
-    assert one.page_size_bytes == 16 * 8 * 128 * 2 * 2
+    assert one.spec.page_size_bytes == 16 * 8 * 128 * 2 * 2
+
+
+def test_every_layer_shares_one_block_table():
+    """vLLM groups layers whose configs compare equal into one block table, and
+    the runner builds a single page table for all of them."""
+    configs = build_kv_cache_layer_configs(
+        num_layers=3, num_kv_heads=8, head_size=128, dtype=torch.bfloat16, block_size=16
+    )
+
+    assert len(set(configs.values())) == 1
 
 
 def test_the_layout_takes_vllms_block_count_without_adding_a_padding_page():
