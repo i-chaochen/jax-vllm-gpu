@@ -150,9 +150,9 @@ class HfTokenizerTest(unittest.TestCase):
     """
     script = (
         "import sys, json, os, tempfile\n"
-        "sys.path.insert(0, os.environ['MAXTEXT_SRC'])\n"
+        "sys.path.insert(0, os.environ['PACKAGE_SRC'])\n"
         f"d = {self.dir!r}\n"
-        "from maxtext.inference import hf_tokenizer\n"
+        "from jax_vllm_gpu.engine import tokenizer as hf_tokenizer\n"
         "t = hf_tokenizer.build_tokenizer(d)\n"
         "assert t.encode('hello world') == [0, 1]\n"
         "assert t.decode([0, 1])\n"
@@ -163,7 +163,7 @@ class HfTokenizerTest(unittest.TestCase):
         "print('LEAKED:' + ','.join(sorted(bad)))\n"
     )
     env = dict(os.environ)
-    env["MAXTEXT_SRC"] = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
+    env["PACKAGE_SRC"] = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
     env["JAX_PLATFORMS"] = "cpu"
     out = subprocess.run(
         [sys.executable, "-c", script], capture_output=True, text=True, check=True, env=env

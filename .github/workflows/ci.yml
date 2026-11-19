@@ -46,5 +46,6 @@ jobs:
           tests/test_kv_import_rule.py
           tests/test_kv_prefix_cache.py
           tests/test_kv_residency.py
+          tests/test_no_maxtext_runtime_copies.py
           tests/test_profiling.py
           tests/test_agent_skills.py

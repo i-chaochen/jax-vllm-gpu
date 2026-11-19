@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import sys
 import time
@@ -60,6 +61,7 @@ from maxtext.configs import pyconfig
 from jax_vllm_gpu.kv.common import CacheNamespace
 from jax_vllm_gpu.kv.execution import benchmark
 from maxtext.utils import maxtext_utils, model_creation_utils
+from maxtext.utils.globals import MAXTEXT_CONFIGS_DIR
 
 NAMESPACE = CacheNamespace(model_fingerprint="prefix-bench", tokenizer="synthetic")
 
@@ -219,7 +221,7 @@ def main() -> int:
   parser.add_argument("--emb-dim", type=int, default=1024)
   parser.add_argument("--seed", type=int, default=0)
   parser.add_argument("--json-out", default=None)
-  parser.add_argument("--config-path", default="src/maxtext/configs/base.yml")
+  parser.add_argument("--config-path", default=os.path.join(MAXTEXT_CONFIGS_DIR, "base.yml"))
   args = parser.parse_args()
 
   devices = jax.devices()[:1]

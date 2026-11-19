@@ -1,7 +1,7 @@
 """Model-level greedy decode: `gpu_paged` must match the dense path token for token.
 
 This is M3's actual exit criterion, and it is a stronger claim than the
-attention-layer parity test in `attention_test.py`. That one compares one layer
+attention-layer parity test in `tests/test_attention_layer.py`. That one compares one layer
 on one forward pass with weights copied across. This one runs a whole model
 through `MaxEngine` twice, for a prompt and several generated tokens, and asks
 whether the *sequence* agrees. The difference matters because a paged decode
@@ -242,7 +242,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
 
   def _dense_rollout(self, cfg, params_state, steps=STEPS):
     """Greedy decode on the dense two-region cache, through MaxEngine."""
-    engine = PagedEngine(cfg, _devices())
+    engine = maxengine.MaxEngine(cfg, _devices())
     params = engine.load_params(params=params_state)
     padded = jnp.asarray(
         PROMPT + [0] * (cfg.max_prefill_predict_length - len(PROMPT)), dtype=jnp.int32

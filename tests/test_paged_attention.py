@@ -16,12 +16,7 @@ limitations under the License.
 
 These cover the metadata conversion and the config guards, none of which needs a
 kernel. The end-to-end numerical check against the dense path lives in
-`attention_test.py`, which already has the mesh and config fixtures.
-
-Everything is marked `gpu_only`. That is not because these need a GPU -- they do
-not -- but because `tests/conftest.py` auto-marks unmarked tests `cpu_only` and
-then skips `cpu_only` on any accelerator testbed. An unmarked test here would
-report success on the machines we actually care about without ever running.
+`tests/test_attention_layer.py`, which has the mesh and config fixtures.
 """
 
 import sys
@@ -29,7 +24,6 @@ import unittest
 
 from absl.testing import parameterized
 import numpy as np
-import pytest
 
 import jax.numpy as jnp
 
@@ -50,7 +44,6 @@ class _VllmMetadata:
     self.query_start_loc = query_start_loc
 
 
-@pytest.mark.gpu_only
 class MetadataConversionTest(parameterized.TestCase):
   """Both accepted metadata shapes must produce the same page bookkeeping."""
 
@@ -150,7 +143,6 @@ class MetadataConversionTest(parameterized.TestCase):
     self.assertFalse(gpa.is_neutral_page_table(md))
 
 
-@pytest.mark.gpu_only
 class BackendSelectionTest(parameterized.TestCase):
 
   def test_explicit_backend_is_taken_literally(self):
@@ -166,7 +158,6 @@ class BackendSelectionTest(parameterized.TestCase):
       gpa.paged_attention_step(None, None, None, None, None, None, backend="nope")
 
 
-@pytest.mark.gpu_only
 class ConfigGuardTest(parameterized.TestCase):
   """`gpu_paged` must be accepted, and its one pathological combination refused."""
 

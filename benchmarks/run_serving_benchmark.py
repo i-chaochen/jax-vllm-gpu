@@ -5,11 +5,11 @@ on the dense two-region cache and one on the page pool. This is the comparison
 that proves or refutes the thesis in Section 1.1, and it is deliberately a single
 device -- sharding is a separate milestone and would only add a variable.
 
-Usage, from the MaxText root:
+Usage, from this repository's root:
 
     DECOUPLE_GCLOUD=TRUE JA_ROOT_DIR=/path/to/jax-aiter \\
-    PYTHONPATH=src:/path/to/jax-aiter \\
-    python3 benchmarks/paged_kv/run_serving_benchmark.py --mode both
+    PYTHONPATH=src:/path/to/maxtext/src:/path/to/jax-aiter \\
+    python3 benchmarks/run_serving_benchmark.py --mode both
 
 `--mode paged` needs neither JetStream nor a checkpoint. `--mode dense` needs
 JetStream for real, because the dense `_prefill_jit` returns its `ResultTokens`
@@ -33,6 +33,7 @@ limitations under the License.
 
 import argparse
 import copy
+import os
 import sys
 
 import jax
@@ -43,6 +44,7 @@ from maxtext.common.common_types import MODEL_MODE_PREFILL
 from maxtext.configs import pyconfig
 from jax_vllm_gpu.kv.execution import benchmark
 from maxtext.utils import maxtext_utils, model_creation_utils
+from maxtext.utils.globals import MAXTEXT_CONFIGS_DIR
 
 # Small enough to run in a couple of minutes, large enough that the KV footprint
 # is the binding constraint rather than a rounding error. head_dim 128 with equal
@@ -171,7 +173,7 @@ def main() -> int:
   parser.add_argument("--json-out", default=None)
   parser.add_argument(
       "--config-path",
-      default="src/maxtext/configs/base.yml",
+      default=os.path.join(MAXTEXT_CONFIGS_DIR, "base.yml"),
       help="base.yml to layer overrides onto",
   )
   args = parser.parse_args()

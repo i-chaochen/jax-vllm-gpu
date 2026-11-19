@@ -65,19 +65,20 @@ time: a `docker exec` that never returns blocks every later command in the
 same shell.
 
 ```bash
-# CPU: gpu_only tests skip. 393 passed, 62 skipped on 2026-11-19.
+# CPU: gpu_only tests skip. 413 passed, 48 skipped on 2026-11-19.
 timeout 900 docker exec "${ENV[@]}" -e JAX_PLATFORMS=cpu -e DECOUPLE_GCLOUD=TRUE $C \
   bash -lc 'cd /tf/jax-vllm-gpu && python3 -m pytest tests -q'
 
 # GPU: everything, including the KV kernels and the engine parity tests.
-# 454 passed, 1 skipped on 8x MI300X.
-timeout 2400 docker exec "${ENV[@]}" -e DECOUPLE_GCLOUD=TRUE $C \
+# 460 passed, 1 skipped on 8x MI300X. JAX_VLLM_REQUIRE_GPU=1 fails the run if
+# JAX falls back to the CPU, instead of skipping every GPU test.
+timeout 2400 docker exec "${ENV[@]}" -e DECOUPLE_GCLOUD=TRUE -e JAX_VLLM_REQUIRE_GPU=1 $C \
   bash -lc 'cd /tf/jax-vllm-gpu && python3 -m pytest tests -q'
 
 # The skipped one compares against MaxText's dense path, which needs exactly
-# the engine's device visible. 7 passed.
+# the engine's device visible. 11 passed, with the attention-layer tests.
 timeout 1200 docker exec "${ENV[@]}" -e DECOUPLE_GCLOUD=TRUE -e HIP_VISIBLE_DEVICES=0 $C \
-  bash -lc 'cd /tf/jax-vllm-gpu && python3 -m pytest tests/test_decode_parity.py -q'
+  bash -lc 'cd /tf/jax-vllm-gpu && python3 -m pytest tests/test_decode_parity.py tests/test_attention_layer.py -q'
 ```
 
 `DECOUPLE_GCLOUD=TRUE` gives MaxEngine the JetStream stubs it imports. Read the
@@ -88,7 +89,8 @@ The control plane needs only numpy, which is what CI runs:
 
 ```bash
 PYTHONPATH=src python -m pytest tests/test_kv_common.py tests/test_kv_control.py \
-  tests/test_kv_import_rule.py tests/test_kv_prefix_cache.py tests/test_kv_residency.py
+  tests/test_kv_import_rule.py tests/test_kv_prefix_cache.py tests/test_kv_residency.py \
+  tests/test_no_maxtext_runtime_copies.py tests/test_profiling.py tests/test_agent_skills.py
 ```
 
 ## 3. Smoke runs through vLLM's engine

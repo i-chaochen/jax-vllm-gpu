@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("jax_vllm_gpu.kv.common", reason="MaxText must be importable")
 pytest.importorskip("vllm", reason="vLLM is supplied by the runtime image")
 
 import torch

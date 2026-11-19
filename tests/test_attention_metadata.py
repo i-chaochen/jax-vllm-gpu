@@ -11,7 +11,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-pytest.importorskip("jax_vllm_gpu.kv.common", reason="MaxText must be importable")
 
 from jax_vllm_gpu.ops.paged_attention import is_vllm_metadata
 

@@ -22,8 +22,9 @@ runtime serves models two ways:
 - vLLM's chunked prefill, preemption with recompute and prefix caching, each
   driven by vLLM's own scheduler (`tools/smoke_engine.py`). Greedy output is
   the same whatever the token budget.
-- The native engine: paged decode token-identical to MaxText's dense path and
-  to a full forward pass, batched prefill, prefix sharing between requests, and
+- The native engine: every paged-decode token is the argmax of a full forward
+  pass, as the dense path's are, with near-ties judged at bf16 resolution.
+  Batched prefill, prefix sharing that reproduces a cold run token for token, and
   a host tier that pages KV out and back.
 - Pages another request wrote are scrubbed before reuse, tested against vLLM's
   block lifecycle with a negative control.
@@ -44,8 +45,11 @@ This repository supplies what inference needs around them:
   `MaxEngine`.
 
 MaxText is pinned at ROCm/maxtext `30105a4c0`, which carries the hook. The next
-pin is `maxtext-v0.2.5`, the release jax-titan uses, with the hook as one small
-patch. MaxDiffusion is the second model provider and is not served yet.
+pin is `maxtext-v0.2.5`, the release jax-titan uses, which has neither the hook
+nor the paged settings. The hook comes back as one small patch: the `gpu_paged`
+dispatch, the skipped dense-cache init and the returned pool. The paged settings
+move into this repository's config. MaxDiffusion is the second model provider
+and is not served yet.
 
 ## A plugin, not a fork
 

@@ -1,10 +1,25 @@
-# SPDX-License-Identifier: Apache-2.0
+# Copyright 2023–2025 Google LLC
+# Modifications Copyright 2026 Advanced Micro Devices, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """MaxEngine with paged serving: the native engine, with no vLLM in the process.
 
 `PagedEngine` takes model construction, parameter loading, the tokenizer and
 the dense path from MaxText's `MaxEngine` unchanged, and adds a parallel paged
 surface: `init_paged_runtime`, `prefill_paged`, `generate_paged`, `paged_step`
-and `release`. The dense two-region cache -- one fixed slot per request, every
+and `release`. The one `MaxEngine` method it overrides is `release_pages`,
+which is a stub there. The dense two-region cache -- one fixed slot per request, every
 slot advancing in lockstep, a cache copied into a batch row at insert time --
 does not survive contact with a page pool, so the paged path sits beside it
 rather than inside it, and nothing on the dense path calls into it.
@@ -107,7 +122,8 @@ class PagedEngine(maxengine.MaxEngine):
           f"init_paged_runtime requires attention='gpu_paged', but this engine is configured for "
           f"'{self.config.attention}'."
       )
-    if not self.config.pure_nnx:
+    # MaxText releases without the field are NNX only.
+    if not getattr(self.config, "pure_nnx", True):
       raise ValueError("the paged engine runs MaxText's NNX model; set pure_nnx=True.")
 
     layout = build_storage_layout(self.config, self._mesh)
