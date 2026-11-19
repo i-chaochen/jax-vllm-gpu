@@ -14,7 +14,7 @@ from importlib.metadata import entry_points
 
 import pytest
 
-from jax_vllm_plugin.platform import (
+from jax_vllm_gpu.plugin.platform import (
     FORCE_ENV_VAR,
     PLATFORM_QUALNAME,
     JaxPlatform,
@@ -27,10 +27,10 @@ vllm = pytest.importorskip("vllm", reason="vLLM is supplied by the runtime image
 def test_the_entry_points_are_declared_in_installed_metadata():
     """Catches a misspelled group or a wheel built without the entry points."""
     platform_group = entry_points(group="vllm.platform_plugins")
-    assert "jax_vllm_plugin" in {ep.name for ep in platform_group}
+    assert "jax_vllm_gpu" in {ep.name for ep in platform_group}
 
     general_group = entry_points(group="vllm.general_plugins")
-    assert "jax_vllm_plugin_kv_connector" in {ep.name for ep in general_group}
+    assert "jax_vllm_gpu_kv_connector" in {ep.name for ep in general_group}
 
 
 def test_the_probe_returns_a_qualname_string_rather_than_the_class():

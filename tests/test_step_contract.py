@@ -31,13 +31,13 @@ pytest.importorskip("vllm", reason="vLLM supplies ModelRunnerOutput")
 import jax
 import jax.numpy as jnp
 
-from maxtext.inference.kv_common import KvStorageLayoutV1
-from maxtext.inference.kv_execution.bucketing import StepShapePlanner
-from maxtext.inference.kv_execution.pool_factory import allocate_pool
+from jax_vllm_gpu.kv.common import KvStorageLayoutV1
+from jax_vllm_gpu.kv.execution.bucketing import StepShapePlanner
+from jax_vllm_gpu.kv.execution.pool_factory import allocate_pool
 
-from jax_vllm_plugin import pool as pool_module
-from jax_vllm_plugin.kv_reuse import PageReuseTracker
-from jax_vllm_plugin.model_runner import JaxModelRunner
+from jax_vllm_gpu.plugin import pool as pool_module
+from jax_vllm_gpu.plugin.kv_reuse import PageReuseTracker
+from jax_vllm_gpu.plugin.model_runner import JaxModelRunner
 
 PAGE = 16
 NUM_PAGES = 32
@@ -89,10 +89,10 @@ def a_runner():
     return runner
 
 
-def a_scheduler_output(prompt_len=4, blocks=(1,)):
+def a_scheduler_output(prompt_len=4, blocks=(1,), req_id="r0"):
     """The minimum a first prefill step carries, duck-typed."""
     request = SimpleNamespace(
-        req_id="r0",
+        req_id=req_id,
         prompt_token_ids=list(range(prompt_len)),
         sampling_params=SimpleNamespace(temperature=0.0, top_p=1.0, top_k=0),
         block_ids=(list(blocks),),
@@ -102,7 +102,7 @@ def a_scheduler_output(prompt_len=4, blocks=(1,)):
         scheduled_new_reqs=[request],
         scheduled_cached_reqs=None,
         finished_req_ids=(),
-        num_scheduled_tokens={"r0": prompt_len},
+        num_scheduled_tokens={req_id: prompt_len},
         total_num_scheduled_tokens=prompt_len,
     )
 
@@ -150,7 +150,7 @@ def test_the_pending_step_is_cleared_so_the_next_step_can_run():
     runner.execute_model(a_scheduler_output())
     runner.sample_tokens(None)
 
-    assert runner.execute_model(a_scheduler_output(blocks=(2,))) is None
+    assert runner.execute_model(a_scheduler_output(blocks=(2,), req_id="r1")) is None
 
 
 def test_structured_output_is_refused_rather_than_ignored():
@@ -167,7 +167,7 @@ def test_structured_output_is_refused_rather_than_ignored():
 def test_the_worker_delegates_sampling_rather_than_raising():
     """The original worker raised here, on the theory that the engine would
     never call it. It does."""
-    from jax_vllm_plugin.worker import JaxWorker
+    from jax_vllm_gpu.plugin.worker import JaxWorker
 
     runner = a_runner()
     worker = JaxWorker.__new__(JaxWorker)
@@ -175,3 +175,26 @@ def test_the_worker_delegates_sampling_rather_than_raising():
 
     assert worker.execute_model(a_scheduler_output()) is None
     assert worker.sample_tokens(None).req_ids == ["r0"]
+
+
+def test_a_roctx_range_spans_the_step_from_dispatch_to_the_sampled_tokens():
+    """execute_model only enqueues the forward pass, so the range has to stay
+    open until sample_tokens holds the tokens; closing it at dispatch would
+    cover none of the GPU work."""
+    runner = a_runner()
+    events = []
+
+    class FakeRoctx:
+        def start(self, name):
+            events.append(("start", name.split()[0]))
+            return 7
+
+        def stop(self, range_id):
+            events.append(("stop", range_id))
+
+    runner._roctx = FakeRoctx()
+    runner.execute_model(a_scheduler_output())
+    assert events == [("start", "JAX_VLLM_STEP")]
+
+    runner.sample_tokens(None)
+    assert events == [("start", "JAX_VLLM_STEP"), ("stop", 7)]

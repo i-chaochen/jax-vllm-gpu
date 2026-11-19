@@ -11,10 +11,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-pytest.importorskip("maxtext.inference.kv_common", reason="MaxText must be importable")
 
-from jax_vllm_plugin.kv_reuse import DirtyPageError, PageReuseTracker
-from jax_vllm_plugin.page_table import RequestPages
+from jax_vllm_gpu.plugin.kv_reuse import DirtyPageError, PageReuseTracker
+from jax_vllm_gpu.plugin.page_table import RequestPages
 
 PAGE = 16
 POOL = 64
@@ -124,3 +123,38 @@ def test_a_page_outside_the_pool_is_rejected():
     t = tracker()
     with pytest.raises(ValueError, match="out of range"):
         t.observe([RequestPages("a", [POOL + 1], 0, 16)])
+
+
+def test_a_reused_request_id_gets_a_fresh_page_owner_generation():
+    """Request IDs are caller-controlled names, not stable ownership tokens."""
+    t = tracker()
+    t.admit("reused")
+    first = [RequestPages("reused", [1], 0, 8)]
+    t.observe(first)
+    t.note_written(first)
+
+    t.retire("reused")
+    t.admit("reused")
+    pending = t.observe([RequestPages("reused", [1], 0, 4)])
+
+    np.testing.assert_array_equal(pending, [1])
+
+
+def test_retirement_bounds_the_active_request_map_without_erasing_page_history():
+    t = tracker()
+    t.admit("done")
+    first = [RequestPages("done", [1], 0, 8)]
+    t.note_written(first)
+
+    t.retire("done")
+
+    assert t.num_active_requests == 0
+    assert list(t.observe([RequestPages("next", [1], 0, 4)])) == [1]
+
+
+def test_duplicate_active_request_id_is_rejected():
+    t = tracker()
+    t.admit("active")
+
+    with pytest.raises(ValueError, match="already active"):
+        t.admit("active")

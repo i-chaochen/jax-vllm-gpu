@@ -6,7 +6,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from jax_vllm_plugin import sampling
+from jax_vllm_gpu.plugin import sampling
 
 jax = pytest.importorskip("jax", reason="sampling runs in JAX")
 jnp = pytest.importorskip("jax.numpy")

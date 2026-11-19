@@ -6,9 +6,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-pytest.importorskip("maxtext.inference.kv_common", reason="MaxText must be importable")
 
-from jax_vllm_plugin.page_table import RequestPages, build_page_table
+from jax_vllm_gpu.plugin.page_table import RequestPages, build_page_table
 
 PAGE = 16
 

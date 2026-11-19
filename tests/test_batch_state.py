@@ -7,9 +7,8 @@ from dataclasses import dataclass, field
 
 import pytest
 
-pytest.importorskip("maxtext.inference.kv_common", reason="MaxText must be importable")
 
-from jax_vllm_plugin.batch_state import BatchState
+from jax_vllm_gpu.plugin.batch_state import BatchState
 
 
 @dataclass
@@ -155,3 +154,25 @@ def test_ragged_cached_request_data_is_rejected():
                 )
             )
         )
+
+
+def test_a_finished_request_id_can_be_reused_in_the_same_step():
+    state = BatchState()
+    state.apply(FakeOutput(scheduled_new_reqs=[FakeNewReq("a", ([1],), 0)]))
+
+    state.apply(
+        FakeOutput(
+            scheduled_new_reqs=[FakeNewReq("a", ([7],), 0)],
+            finished_req_ids={"a"},
+        )
+    )
+
+    assert state.get("a").block_ids == [7]
+
+
+def test_duplicate_active_request_id_is_rejected():
+    state = BatchState()
+    state.apply(FakeOutput(scheduled_new_reqs=[FakeNewReq("a", ([1],), 0)]))
+
+    with pytest.raises(ValueError, match="already active"):
+        state.apply(FakeOutput(scheduled_new_reqs=[FakeNewReq("a", ([2],), 0)]))
