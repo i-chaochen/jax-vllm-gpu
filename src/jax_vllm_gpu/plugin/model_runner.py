@@ -370,12 +370,11 @@ class JaxModelRunner:
         )
 
         view = prepared.view
-        input_ids = self._padded_tokens(requests, shape.num_tokens)
-        positions = _pad(prepared.table.write_positions, shape.num_tokens, 0)
-        sample_rows = _pad(
-            np.asarray(view.cu_seqlens_q)[1 : len(requests) + 1] - 1,
-            shape.num_requests,
-            0,
+        input_ids, positions, sample_rows = _prepared_model_inputs(
+            prepared.inputs,
+            is_decode=shape.is_decode,
+            active_requests=len(requests),
+            request_width=shape.num_requests,
         )
 
         with jax.set_mesh(self.mesh):
@@ -390,7 +389,7 @@ class JaxModelRunner:
                 view.kv_last_page_lens,
                 view.cu_seqlens_q,
                 jnp.asarray(sample_rows),
-                max_seqlen_q=view.max_seqlen_q,
+                max_seqlen_q=_attention_max_seqlen_q(shape),
                 max_seqlen_k=shape.max_seqlen_k,
                 is_decode=shape.is_decode,
             )
@@ -429,7 +428,9 @@ class JaxModelRunner:
             vocab_size=int(self.model_config.get_vocab_size()),
         )
 
-        self._rng, step_rng = jax.random.split(self._rng)
+        self._rng, step_rng = _next_rng(
+            self._rng, all_greedy=spec.all_greedy, split=jax.random.split
+        )
         with jax.set_mesh(self.mesh):
             tokens = self._sample_fn(
                 step_rng,
@@ -480,21 +481,6 @@ class JaxModelRunner:
             request.num_computed_tokens, request.num_scheduled_tokens
         )
 
-    def _padded_tokens(self, requests, width: int) -> np.ndarray:
-        """This step's input tokens, flattened in request order and padded.
-
-        Flat `[num_tokens]` rather than `[batch, seq]`: MaxText's vLLM adapter
-        treats vLLM's flattened tokens as a batch of length-one sequences, and
-        gets attention structure from the plan instead of from the shape.
-        """
-        flat = np.zeros((width,), dtype=np.int32)
-        cursor = 0
-        for request in requests:
-            tokens = self._tokens_for(request)
-            flat[cursor : cursor + tokens.size] = tokens
-            cursor += tokens.size
-        return flat
-
     def _shape_for(self, requests) -> Any:
         query_lens = [r.num_scheduled_tokens for r in requests]
         max_seq_len = max((r.seq_len for r in requests), default=1)
@@ -536,3 +522,44 @@ def _pad(values: np.ndarray, width: int, fill) -> np.ndarray:
         return values
     tail = np.full((width - values.shape[0],), fill, dtype=values.dtype)
     return np.concatenate([values, tail])
+
+
+def _prepared_model_inputs(
+    inputs: Any, *, is_decode: bool, active_requests: int, request_width: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The step's flat token ids, positions and sample rows, from `prepare_step`'s host arrays.
+
+    Flat `[num_tokens]`: MaxText's vLLM adapter treats vLLM's flattened tokens
+    as a batch of length-one sequences. A sample row is the flat index of a
+    request's last token, which is its row under decode (one token per row) and
+    its packed position under prefill. Read from host arrays because
+    `StepView.cu_seqlens_q` is a device array, and deriving the rows from it
+    copied it back to the host on every step.
+    """
+    input_ids = np.asarray(inputs.tokens, dtype=np.int32).reshape(-1)
+    positions = np.asarray(inputs.positions, dtype=np.int32).reshape(-1)
+    if is_decode:
+        rows = np.asarray(inputs.sample_rows[:active_requests], dtype=np.int32)
+    else:
+        rows = np.asarray(inputs.sample_at, dtype=np.int32)
+    return input_ids, positions, _pad(rows, request_width, 0)
+
+
+def _attention_max_seqlen_q(shape: Any) -> int:
+    """A static bound on any one request's query length in this step.
+
+    The token bucket is the sum over requests, not the longest query; passed as
+    is, an 8,192-token mixed batch looked to the paged-prefill kernel like one
+    8,192-token query. No query is longer than the bucket or than its own
+    context, which `max_seqlen_k` bounds.
+    """
+    if shape.is_decode:
+        return 1
+    return min(int(shape.num_tokens), int(shape.max_seqlen_k))
+
+
+def _next_rng(rng: Any, *, all_greedy: bool, split: Any) -> tuple[Any, Any]:
+    """`(next_key, step_key)`, without dispatching a split greedy sampling cannot use."""
+    if all_greedy:
+        return rng, rng
+    return split(rng)
