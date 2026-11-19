@@ -89,10 +89,10 @@ def a_runner():
     return runner
 
 
-def a_scheduler_output(prompt_len=4, blocks=(1,)):
+def a_scheduler_output(prompt_len=4, blocks=(1,), req_id="r0"):
     """The minimum a first prefill step carries, duck-typed."""
     request = SimpleNamespace(
-        req_id="r0",
+        req_id=req_id,
         prompt_token_ids=list(range(prompt_len)),
         sampling_params=SimpleNamespace(temperature=0.0, top_p=1.0, top_k=0),
         block_ids=(list(blocks),),
@@ -102,7 +102,7 @@ def a_scheduler_output(prompt_len=4, blocks=(1,)):
         scheduled_new_reqs=[request],
         scheduled_cached_reqs=None,
         finished_req_ids=(),
-        num_scheduled_tokens={"r0": prompt_len},
+        num_scheduled_tokens={req_id: prompt_len},
         total_num_scheduled_tokens=prompt_len,
     )
 
@@ -150,7 +150,7 @@ def test_the_pending_step_is_cleared_so_the_next_step_can_run():
     runner.execute_model(a_scheduler_output())
     runner.sample_tokens(None)
 
-    assert runner.execute_model(a_scheduler_output(blocks=(2,))) is None
+    assert runner.execute_model(a_scheduler_output(blocks=(2,), req_id="r1")) is None
 
 
 def test_structured_output_is_refused_rather_than_ignored():

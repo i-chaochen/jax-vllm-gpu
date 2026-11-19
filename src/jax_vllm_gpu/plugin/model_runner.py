@@ -344,9 +344,11 @@ class JaxModelRunner:
                 "between; the first step's logits would be discarded"
             )
 
+        # Retire first: a finished request's id may be reused by a new one in
+        # the same scheduler output.
+        self._retire(scheduler_output)
         self._admit(scheduler_output)
         self.batch_state.apply(scheduler_output)
-        self._retire(scheduler_output)
 
         if not getattr(scheduler_output, "total_num_scheduled_tokens", 0):
             # Nothing to stash, so nothing for sample_tokens to do. Returned
@@ -459,7 +461,10 @@ class JaxModelRunner:
     # --------------------------------------------------------------- pieces
 
     def _admit(self, scheduler_output: Any) -> None:
+        if self.tracker is None:
+            raise RuntimeError("the KV cache must be initialized before admitting requests")
         for new in getattr(scheduler_output, "scheduled_new_reqs", ()) or ():
+            self.tracker.admit(new.req_id)
             self.requests[new.req_id] = RequestTokens(
                 new.req_id, new.prompt_token_ids, new.sampling_params
             )
@@ -467,6 +472,8 @@ class JaxModelRunner:
     def _retire(self, scheduler_output: Any) -> None:
         for finished in getattr(scheduler_output, "finished_req_ids", ()) or ():
             self.requests.pop(finished, None)
+            if self.tracker is not None:
+                self.tracker.retire(finished)
 
     def _tokens_for(self, request: RequestPages) -> np.ndarray:
         return self.requests[request.request_id].slice(

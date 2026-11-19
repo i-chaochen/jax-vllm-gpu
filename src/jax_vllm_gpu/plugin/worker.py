@@ -113,6 +113,11 @@ class JaxWorker(WorkerBase):
                 )
         finally:
             parallel_config.data_parallel_size = saved_dp_size
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                # torch.distributed may remove the FileStore rendezvous itself.
+                pass
 
     def load_model(self, *, load_dummy_weights: bool = False) -> None:
         self.model_runner.load_model()

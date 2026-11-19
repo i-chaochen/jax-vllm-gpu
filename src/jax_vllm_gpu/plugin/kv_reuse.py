@@ -61,13 +61,33 @@ class PageReuseTracker:
         self._written = np.zeros(num_pages, dtype=bool)
         self._owner = np.full(num_pages, self._NO_OWNER, dtype=np.int64)
         self._request_slots: dict[str, int] = {}
+        self._next_owner = 0
         self._pending: set[int] = set()
+
+    def admit(self, request_id: str) -> int:
+        """Give a newly admitted request a fresh owner generation.
+
+        Request ids are caller-controlled names, not ownership tokens: a reused
+        id must not inherit its predecessor's pages, or it would skip the scrub
+        of a page that request wrote.
+        """
+        if request_id in self._request_slots:
+            raise ValueError(f"request {request_id!r} is already active")
+        owner = self._next_owner
+        self._next_owner += 1
+        self._request_slots[request_id] = owner
+        return owner
+
+    def retire(self, request_id: str) -> None:
+        """Forget the active name, keeping the ownership recorded in its pages."""
+        self._request_slots.pop(request_id, None)
 
     def _slot(self, request_id: str) -> int:
         slot = self._request_slots.get(request_id)
         if slot is None:
-            slot = len(self._request_slots)
-            self._request_slots[request_id] = slot
+            # Callers without an explicit admission event; the model runner
+            # admits each request itself.
+            slot = self.admit(request_id)
         return slot
 
     def write_region(self, request: RequestPages) -> list[int]:
@@ -132,6 +152,10 @@ class PageReuseTracker:
     @property
     def num_pending(self) -> int:
         return len(self._pending)
+
+    @property
+    def num_active_requests(self) -> int:
+        return len(self._request_slots)
 
 
 class DirtyPageError(RuntimeError):
