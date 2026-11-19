@@ -65,12 +65,12 @@ time: a `docker exec` that never returns blocks every later command in the
 same shell.
 
 ```bash
-# CPU: gpu_only tests skip. 355 passed, 62 skipped on 2026-11-18.
+# CPU: gpu_only tests skip. 393 passed, 62 skipped on 2026-11-19.
 timeout 900 docker exec "${ENV[@]}" -e JAX_PLATFORMS=cpu -e DECOUPLE_GCLOUD=TRUE $C \
   bash -lc 'cd /tf/jax-vllm-gpu && python3 -m pytest tests -q'
 
 # GPU: everything, including the KV kernels and the engine parity tests.
-# 416 passed, 1 skipped on 8x MI300X.
+# 454 passed, 1 skipped on 8x MI300X.
 timeout 2400 docker exec "${ENV[@]}" -e DECOUPLE_GCLOUD=TRUE $C \
   bash -lc 'cd /tf/jax-vllm-gpu && python3 -m pytest tests -q'
 
