@@ -1,19 +1,19 @@
 ---
 name: jax_vllm_gpu_coding
 description: >-
-  Architecture rules, coding standards and test discipline for jax-vllm-gpu,
-  JAX inference on AMD GPUs with a paged KV cache, served through a vLLM
-  platform plugin or a native offline engine, with MaxText as the model
-  provider. Use when writing, reviewing or changing code in the jax-vllm-gpu
-  repo: the KV runtime, the paged-attention kernels, the MaxText adapters, the
-  engine, the vLLM plugin, tests and docs.
+  Architecture rules, coding standards and test discipline for vLLM-XLA-GPU
+  (formerly jax-vllm-gpu), JAX inference on AMD GPUs with a paged KV cache,
+  served through a vLLM platform plugin or a native offline engine, with
+  MaxText as the model provider. Use when writing, reviewing or changing code
+  in the vllm-xla-gpu repo: the KV runtime, the paged-attention kernels, the
+  MaxText adapters, the engine, the vLLM plugin, tests and docs.
 ---
 
-# jax-vllm-gpu Coding Guide
+# vLLM-XLA-GPU Coding Guide
 
 ## Core Principle
 
-jax-vllm-gpu is built AMD-native first: ROCm, AITER kernels through
+vLLM-XLA-GPU is built AMD-native first: ROCm, AITER kernels through
 JAX-AITER's XLA FFI, and MORI for transport later. MaxText is a pinned model
 provider: this repository never edits MaxText's source, and anything MaxText
 must carry lives as a patch that is also proposed upstream. vLLM is never

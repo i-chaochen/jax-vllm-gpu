@@ -1,6 +1,6 @@
 # Getting started
 
-jax-vllm-gpu runs in the TheRock ROCm container jax-titan uses, on jax-titan's
+vLLM-XLA-GPU runs in the TheRock ROCm container jax-titan uses, on jax-titan's
 JAX build, with a CPU-only torch and vLLM built with no kernels of its own. The
 source trees, the venv and the compilation cache live in `JAX_VLLM_GPU_ROOT`,
 which defaults to `.jax_vllm_gpu` next to this repository.
