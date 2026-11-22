@@ -89,11 +89,21 @@ def a_runner():
     return runner
 
 
-def a_scheduler_output(prompt_len=4, blocks=(1,), req_id="r0"):
-    """The minimum a first prefill step carries, duck-typed."""
+def a_scheduler_output(
+    prompt_len=4, blocks=(1,), req_id="r0", *, prefill=None, scheduled=None, preempted=None
+):
+    """The minimum a first prefill step carries, duck-typed.
+
+    `prefill` defaults to the prompt; a resumed request also replays what it had
+    generated. `scheduled` defaults to all of it in one step.
+    """
+    prompt = list(range(prompt_len))
+    prefill = prompt if prefill is None else list(prefill)
+    scheduled = len(prefill) if scheduled is None else scheduled
     request = SimpleNamespace(
         req_id=req_id,
-        prompt_token_ids=list(range(prompt_len)),
+        prompt_token_ids=prompt,
+        prefill_token_ids=prefill,
         sampling_params=SimpleNamespace(temperature=0.0, top_p=1.0, top_k=0),
         block_ids=(list(blocks),),
         num_computed_tokens=0,
@@ -102,8 +112,9 @@ def a_scheduler_output(prompt_len=4, blocks=(1,), req_id="r0"):
         scheduled_new_reqs=[request],
         scheduled_cached_reqs=None,
         finished_req_ids=(),
-        num_scheduled_tokens={req_id: prompt_len},
-        total_num_scheduled_tokens=prompt_len,
+        preempted_req_ids=preempted,
+        num_scheduled_tokens={req_id: scheduled},
+        total_num_scheduled_tokens=scheduled,
     )
 
 
@@ -123,7 +134,6 @@ def test_sample_tokens_produces_the_output_the_engine_consumes():
     output = runner.sample_tokens(None)
 
     assert output.req_ids == ["r0"]
-    assert output.req_id_to_index == {"r0": 0}
     assert len(output.sampled_token_ids) == 1
 
 
@@ -151,6 +161,57 @@ def test_the_pending_step_is_cleared_so_the_next_step_can_run():
     runner.sample_tokens(None)
 
     assert runner.execute_model(a_scheduler_output(blocks=(2,), req_id="r1")) is None
+
+
+def test_a_preempted_request_comes_back_as_new_with_fresh_pages():
+    """vLLM resumes a preempted request by sending it again as a new one, its
+    generated tokens appended to the prompt. Its old pages are gone, and the
+    first token emitted is the one after the replay."""
+    runner = a_runner()
+    runner.execute_model(a_scheduler_output())
+    (first,) = runner.sample_tokens(None).sampled_token_ids
+    replay = list(range(4)) + first
+
+    runner.execute_model(a_scheduler_output(blocks=(2,), prefill=replay, preempted={"r0"}))
+    (second,) = runner.sample_tokens(None).sampled_token_ids
+
+    assert len(second) == 1
+    assert runner.batch_state.get("r0").block_ids == [2]
+    assert runner.requests["r0"].tokens == replay + second
+
+
+def test_a_request_resent_while_active_is_refused():
+    """vLLM re-sends an active request only to continue a streaming-input
+    session, which this platform does not serve."""
+    runner = a_runner()
+    runner.execute_model(a_scheduler_output())
+    runner.sample_tokens(None)
+
+    with pytest.raises(ValueError, match="streaming-input"):
+        runner.execute_model(a_scheduler_output(blocks=(2,)))
+
+
+def test_a_partial_replay_emits_nothing():
+    """The replayed tokens were emitted before the preemption; a token predicted
+    from part of them continues nothing."""
+    runner = a_runner()
+    replay = list(range(4)) + [7]
+
+    runner.execute_model(a_scheduler_output(prefill=replay, scheduled=3))
+
+    assert runner.sample_tokens(None).sampled_token_ids == [[]]
+
+
+@pytest.mark.parametrize("field", ["new_block_ids_to_zero", "kv_cache_block_copies"])
+def test_block_edits_from_the_scheduler_are_refused(field):
+    """Skipping a zeroing or a copy-on-write would leave the request reading
+    whatever its page last held."""
+    runner = a_runner()
+    output = a_scheduler_output()
+    setattr(output, field, [1])
+
+    with pytest.raises(RuntimeError, match=field):
+        runner.execute_model(output)
 
 
 def test_structured_output_is_refused_rather_than_ignored():

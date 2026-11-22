@@ -21,7 +21,6 @@ class FakeNewReq:
 @dataclass
 class FakeCached:
     req_ids: list[str] = field(default_factory=list)
-    resumed_req_ids: set[str] = field(default_factory=set)
     new_block_ids: list[tuple[list[int], ...] | None] = field(default_factory=list)
     num_computed_tokens: list[int] = field(default_factory=list)
 
@@ -32,6 +31,7 @@ class FakeOutput:
     scheduled_cached_reqs: FakeCached | None = None
     num_scheduled_tokens: dict[str, int] = field(default_factory=dict)
     finished_req_ids: set[str] = field(default_factory=set)
+    preempted_req_ids: set[str] | None = None
 
 
 def test_a_new_request_takes_its_whole_block_table():
@@ -62,19 +62,25 @@ def test_a_continuing_request_appends_only_the_new_blocks():
     assert state.get("a").num_computed_tokens == 32
 
 
-def test_a_resumed_request_replaces_its_block_table():
-    """vLLM may have freed and reallocated a preempted request's blocks, so
-    appending would name pages it no longer owns."""
+def test_a_preempted_request_is_dropped():
+    """A preempted request has given up its blocks; keeping them would name
+    pages it no longer owns."""
+    state = BatchState()
+    state.apply(FakeOutput(scheduled_new_reqs=[FakeNewReq("a", ([1, 2],), 0)]))
+    state.apply(FakeOutput(preempted_req_ids={"a"}))
+
+    assert "a" not in state
+
+
+def test_a_preempted_request_can_come_back_in_the_same_step():
+    """It comes back as a new request with a fresh block table, which must not
+    trip the duplicate-id check."""
     state = BatchState()
     state.apply(FakeOutput(scheduled_new_reqs=[FakeNewReq("a", ([1, 2],), 0)]))
     state.apply(
         FakeOutput(
-            scheduled_cached_reqs=FakeCached(
-                req_ids=["a"],
-                resumed_req_ids={"a"},
-                new_block_ids=[([7, 8, 9],)],
-                num_computed_tokens=[20],
-            )
+            scheduled_new_reqs=[FakeNewReq("a", ([7, 8, 9],), 0)],
+            preempted_req_ids={"a"},
         )
     )
 

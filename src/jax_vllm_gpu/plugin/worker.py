@@ -181,23 +181,10 @@ class JaxWorker(WorkerBase):
             )
         return available
 
-    def get_cache_block_size_bytes(self) -> int:
-        """One block's cost across every layer, summed over the whole mesh."""
-        layout = self.model_runner.layout
-        if layout is None:
-            raise RuntimeError("the KV pool has not been allocated yet")
-        return (
-            2
-            * layout.num_layers
-            * layout.bytes_per_page()
-            * layout.kv_head_shards
-            * max(layout.pool_replicas, 1)
-        )
-
     # -------------------------------------------------------------- kv cache
 
-    def get_kv_cache_spec(self) -> dict[str, Any]:
-        return self.model_runner.get_kv_cache_spec()
+    def get_kv_cache_layer_configs(self) -> dict[str, Any]:
+        return self.model_runner.get_kv_cache_layer_configs()
 
     def get_supported_kv_cache_layouts(self) -> list[str]:
         # The base implementation asks each registered attention backend what it

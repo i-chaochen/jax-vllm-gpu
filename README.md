@@ -56,7 +56,8 @@ and is not served yet.
 No file in vLLM's tree changes. vLLM finds platforms through
 `importlib.metadata.entry_points(group="vllm.platform_plugins")`, so installing
 this wheel is the whole integration step, and out-of-tree plugins take
-precedence over vLLM's built-in ROCm platform.
+precedence over vLLM's built-in ROCm platform. The supported vLLM commit is
+tpu-inference's last-known-good, recorded in `vllm_lkg.version`.
 
 | what | value |
 |---|---|
@@ -98,9 +99,6 @@ the tests and the smoke runs.
 
 ## Roadmap
 
-- Move to vLLM `5ec99956ad`, tpu-inference's last-known-good. vLLM's KV-cache
-  interface changed (`get_kv_cache_layer_configs`, `KVCacheLayerConfig`), and a
-  preempted request now comes back as a new request.
 - MaxText `maxtext-v0.2.5` with the hook as one carried patch, on jax-titan's
   container and JAX build, with JAX-AITER as a submodule.
 - Compile the bucketed shape set at startup: an unseen shape costs about 90 s

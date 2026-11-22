@@ -31,7 +31,7 @@ def layer_names(num_layers: int) -> tuple[str, ...]:
     return tuple(f"model.layers.{i}.self_attn.attn" for i in range(num_layers))
 
 
-def build_kv_cache_spec(
+def build_kv_cache_layer_configs(
     *,
     num_layers: int,
     num_kv_heads: int,
@@ -39,16 +39,19 @@ def build_kv_cache_spec(
     dtype: Any,
     block_size: int,
 ) -> dict[str, Any]:
-    """One `FullAttentionSpec` per layer, which is what a uniform-precision
-    full-attention model needs and all this platform serves."""
-    from vllm.v1.kv_cache_interface import FullAttentionSpec
+    """One full-attention layer config per layer, which is what a
+    uniform-precision full-attention model needs and all this platform serves."""
+    from vllm.v1.core.single_type_kv_cache_manager import FullAttentionManager
+    from vllm.v1.kv_cache_interface import AttentionSpec
 
     return {
-        name: FullAttentionSpec(
-            block_size=block_size,
-            num_kv_heads=num_kv_heads,
-            head_size=head_size,
-            dtype=dtype,
+        name: FullAttentionManager.layer_config(
+            AttentionSpec(
+                block_size=block_size,
+                num_kv_heads=num_kv_heads,
+                head_size=head_size,
+                dtype=dtype,
+            )
         )
         for name in layer_names(num_layers)
     }

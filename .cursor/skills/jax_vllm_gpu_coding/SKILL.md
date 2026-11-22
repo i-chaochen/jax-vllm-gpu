@@ -61,6 +61,13 @@ patched either: the plugin is found through the `vllm.platform_plugins` and
 
 - `execute_model` returns None and `sample_tokens` returns the
   `ModelRunnerOutput`; vLLM's two engine paths accept only this split.
+- vLLM is pinned to `vllm_lkg.version`. A preempted request is named in
+  `preempted_req_ids` and comes back as a new request whose
+  `prefill_token_ids` replays what it had generated: retire it with the
+  finished ones before admitting, and emit nothing until the replay is done.
+- The runner refuses `new_block_ids_to_zero` and `kv_cache_block_copies`.
+  vLLM sends them only for Mamba layers, mixed-precision KV and partial prefix
+  hits, none of which this platform serves.
 - One worker drives every device with JAX SPMD (`distributed_executor_backend`
   "uni", a gloo world of one). torch is CPU-only.
 - `KVConnectorFactory.register_connector` raises on a duplicate name and the

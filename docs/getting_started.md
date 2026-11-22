@@ -7,34 +7,39 @@ directory holding all of them at `/tf`, and `/data` for checkpoints.
 
 ## 1. Environment
 
-The tested set, 2026-11-18:
+The tested set, 2026-11-19:
 
 | Component | Version |
 |---|---|
 | ROCm | 7.2, gfx942 (MI300X) |
 | jax, jaxlib, jax-rocm7-plugin, jax-rocm7-pjrt | 0.10.2, built from source |
 | flax | 0.12.8 (0.12.9 needs jax 0.11.1) |
-| torch | 2.13.0, CPU build |
-| vLLM | `94a54f581e`, built with `VLLM_TARGET_DEVICE=empty` |
+| torch | 2.14.0, CPU build |
+| vLLM | `5ec99956ad` (`vllm_lkg.version`, tpu-inference's last-known-good), built with `VLLM_TARGET_DEVICE=empty` |
 | MaxText | ROCm/maxtext `30105a4c0` (branch `chao/kv_paged_kernels`), on `PYTHONPATH` |
 | JAX-AITER | ROCm/jax-aiter `bf64025`, KV shims built with `Makefile.kv`, on `PYTHONPATH` |
 
-The container used so far was built this way, inside it:
+The container used so far was built this way, inside it. The venv sees the
+container's self-built jax through `--system-site-packages`:
 
 ```bash
 # Never let pip replace the self-built jax and jaxlib.
 printf 'jax==0.10.2.dev0+selfbuilt\njaxlib==0.10.2.dev0+selfbuilt\n' > /tmp/pin.txt
+python3 -m venv --system-site-packages /opt/venvs/vllm-lkg
+source /opt/venvs/vllm-lkg/bin/activate
 
 # torch, CPU only: a ROCm torch adds a second HIP runtime, which aborts RCCL
 # clique setup above one device.
-pip install -c /tmp/pin.txt torch --index-url https://download.pytorch.org/whl/cpu
+pip install -c /tmp/pin.txt torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu
 
-# vLLM with no kernels. `empty` stamps the version +empty; a +cpu version would
-# activate vLLM's own CPU platform.
-pip install -c /tmp/pin.txt -r /tf/vllm/requirements/common.txt
-VLLM_TARGET_DEVICE=empty pip install --no-build-isolation --no-deps -e /tf/vllm
-# xgrammar's published 0.2.x wheels need a newer libstdc++ than AlmaLinux 8 has.
-pip install --no-deps --no-binary xgrammar "xgrammar==0.2.3"
+# vLLM at the pinned commit, from a worktree of a vLLM checkout made on the host:
+#   git -C vllm worktree add --detach ../vllm-lkg $(cat jax-vllm-gpu/vllm_lkg.version)
+# No kernels: `empty` stamps the version +empty, and a +cpu version would
+# activate vLLM's own CPU platform. The worktree's .git names a host path the
+# container cannot see, so setuptools-scm is given the version.
+pip install -c /tmp/pin.txt -r /tf/vllm-lkg/requirements/common.txt
+VLLM_TARGET_DEVICE=empty SETUPTOOLS_SCM_PRETEND_VERSION=0.34.0rc1.dev491+g5ec99956a \
+  pip install --no-build-isolation --no-deps /tf/vllm-lkg
 
 # JAX-AITER's KV shims, about 3 minutes at -j16.
 cd /tf/jax-aiter && make -f Makefile.kv ja_kv GFX=gfx942 -j16 && python3 scripts/prebuild_pa_ragged.py
@@ -46,10 +51,12 @@ pip install --no-deps --no-build-isolation -e /tf/jax-vllm-gpu
 Git refuses to read a mounted repository as root until it is marked safe:
 `git config --global --add safe.directory '*'` inside the container.
 
-The commands below run from the host. `ENV` is what every run needs:
+The commands below run from the host. `ENV` is what every run needs, and `PY`
+is the venv's interpreter:
 
 ```bash
 C=<container>
+PY=/opt/venvs/vllm-lkg/bin/python
 ENV=(-e PYTHONDONTWRITEBYTECODE=1 -e JA_ROOT_DIR=/tf/jax-aiter
      -e PYTHONPATH=/tf/jax-aiter:/tf/maxtext/src
      -e VLLM_PLUGINS=jax_vllm_gpu,jax_vllm_gpu_kv_connector)
@@ -65,20 +72,20 @@ time: a `docker exec` that never returns blocks every later command in the
 same shell.
 
 ```bash
-# CPU: gpu_only tests skip. 413 passed, 48 skipped on 2026-11-19.
-timeout 900 docker exec "${ENV[@]}" -e JAX_PLATFORMS=cpu -e DECOUPLE_GCLOUD=TRUE $C \
-  bash -lc 'cd /tf/jax-vllm-gpu && python3 -m pytest tests -q'
+# CPU: gpu_only tests skip. 420 passed, 48 skipped on 2026-11-19.
+timeout 900 docker exec "${ENV[@]}" -e JAX_PLATFORMS=cpu -e DECOUPLE_GCLOUD=TRUE \
+  -w /tf/jax-vllm-gpu $C $PY -m pytest tests -q
 
 # GPU: everything, including the KV kernels and the engine parity tests.
-# 460 passed, 1 skipped on 8x MI300X. JAX_VLLM_REQUIRE_GPU=1 fails the run if
+# 467 passed, 1 skipped on 8x MI300X. JAX_VLLM_REQUIRE_GPU=1 fails the run if
 # JAX falls back to the CPU, instead of skipping every GPU test.
-timeout 2400 docker exec "${ENV[@]}" -e DECOUPLE_GCLOUD=TRUE -e JAX_VLLM_REQUIRE_GPU=1 $C \
-  bash -lc 'cd /tf/jax-vllm-gpu && python3 -m pytest tests -q'
+timeout 2400 docker exec "${ENV[@]}" -e DECOUPLE_GCLOUD=TRUE -e JAX_VLLM_REQUIRE_GPU=1 \
+  -w /tf/jax-vllm-gpu $C $PY -m pytest tests -q
 
 # The skipped one compares against MaxText's dense path, which needs exactly
 # the engine's device visible. 11 passed, with the attention-layer tests.
-timeout 1200 docker exec "${ENV[@]}" -e DECOUPLE_GCLOUD=TRUE -e HIP_VISIBLE_DEVICES=0 $C \
-  bash -lc 'cd /tf/jax-vllm-gpu && python3 -m pytest tests/test_decode_parity.py tests/test_attention_layer.py -q'
+timeout 1200 docker exec "${ENV[@]}" -e DECOUPLE_GCLOUD=TRUE -e HIP_VISIBLE_DEVICES=0 \
+  -w /tf/jax-vllm-gpu $C $PY -m pytest tests/test_decode_parity.py tests/test_attention_layer.py -q
 ```
 
 `DECOUPLE_GCLOUD=TRUE` gives MaxEngine the JetStream stubs it imports. Read the
@@ -108,11 +115,11 @@ TINY=(--model /data/cchen104/tiny_llama_hf --dummy
       --maxtext base_num_query_heads=8 --maxtext base_num_kv_heads=2 --maxtext head_dim=128)
 S=/tf/jax-vllm-gpu/tools/smoke_engine.py
 
-timeout 900 docker exec "${ENV[@]}" $C python3 $S "${TINY[@]}" --mode plain
-timeout 900 docker exec "${ENV[@]}" $C python3 $S "${TINY[@]}" --mode chunked --max-num-batched-tokens 64 --max-tokens 8
-timeout 900 docker exec "${ENV[@]}" $C python3 $S "${TINY[@]}" --mode preempt \
+timeout 900 docker exec "${ENV[@]}" $C $PY $S "${TINY[@]}" --mode plain
+timeout 900 docker exec "${ENV[@]}" $C $PY $S "${TINY[@]}" --mode chunked --max-num-batched-tokens 64 --max-tokens 8
+timeout 900 docker exec "${ENV[@]}" $C $PY $S "${TINY[@]}" --mode preempt \
   --max-model-len 256 --max-num-seqs 6 --num-gpu-blocks-override 24 --max-tokens 200
-timeout 900 docker exec "${ENV[@]}" $C python3 $S "${TINY[@]}" --mode prefix --enable-prefix-caching --max-tokens 12
+timeout 900 docker exec "${ENV[@]}" $C $PY $S "${TINY[@]}" --mode prefix --enable-prefix-caching --max-tokens 12
 ```
 
 Greedy output must not depend on scheduling. Run `chunked` at
@@ -125,7 +132,7 @@ Llama-3.3-70B at TP=8, from a MaxText checkpoint converted with MaxText's
 compile and the first decode shape about 90 s:
 
 ```bash
-timeout 2400 docker exec "${ENV[@]}" $C python3 $S --model /data/Llama-3.3-70B-Instruct \
+timeout 2400 docker exec "${ENV[@]}" $C $PY $S --model /data/Llama-3.3-70B-Instruct \
   --tensor-parallel-size 8 --mode plain --max-model-len 2048 --num-gpu-blocks-override 8192 \
   --max-tokens 24 --maxtext model_name=llama3.3-70b \
   --maxtext load_parameters_path=/data/cchen104/maxtext_ckpt_70b/0/items
@@ -142,7 +149,7 @@ synchronization point, and reports the median over steps that did not
 compile, counting compiles apart:
 
 ```bash
-timeout 3000 docker exec "${ENV[@]}" $C python3 /tf/jax-vllm-gpu/tools/bench_latency.py \
+timeout 3000 docker exec "${ENV[@]}" $C $PY /tf/jax-vllm-gpu/tools/bench_latency.py \
   --model /data/Llama-3.3-70B-Instruct --tensor-parallel-size 8 --num-gpu-blocks-override 8192 \
   --batch 1 --batch 4 --batch 8 --gen-tokens 17 --maxtext model_name=llama3.3-70b \
   --maxtext load_parameters_path=/data/cchen104/maxtext_ckpt_70b/0/items

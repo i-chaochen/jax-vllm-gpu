@@ -37,7 +37,7 @@ import numpy as np
 from . import metrics
 from . import pool as pool_module
 from . import paged_plan, sampling
-from .batch_state import BatchState
+from .batch_state import BatchState, retired_request_ids
 from .kv_reuse import PageReuseTracker
 from .page_table import RequestPages
 from .profiling import Roctx
@@ -70,18 +70,22 @@ class PendingStep(NamedTuple):
 class RequestTokens:
     """A request's token sequence and how it should be sampled.
 
-    Separate from `BatchState`, which tracks pages. vLLM sends prompt tokens
-    once, with the new-request record, and never resends them, so the runner has
-    to keep them to feed later prefill chunks -- and has to append each sampled
-    token, since that token is the next step's input.
+    Separate from `BatchState`, which tracks pages. vLLM sends the tokens to
+    prefill once, with the new-request record, and never resends them, so the
+    runner has to keep them to feed later prefill chunks -- and has to append
+    each sampled token, since that token is the next step's input.
+
+    The tokens to prefill are the prompt for a fresh request. A preempted request
+    comes back as a new one whose prefill also replays the tokens it had already
+    generated, and none of those may be emitted again.
     """
 
-    __slots__ = ("request_id", "tokens", "num_prompt_tokens", "sampling_params")
+    __slots__ = ("request_id", "tokens", "num_prefill_tokens", "sampling_params")
 
-    def __init__(self, request_id: str, prompt_token_ids, sampling_params) -> None:
+    def __init__(self, request_id: str, prefill_token_ids, sampling_params) -> None:
         self.request_id = request_id
-        self.tokens: list[int] = list(prompt_token_ids or ())
-        self.num_prompt_tokens = len(self.tokens)
+        self.tokens: list[int] = list(prefill_token_ids or ())
+        self.num_prefill_tokens = len(self.tokens)
         self.sampling_params = sampling_params
 
     def slice(self, start: int, count: int) -> np.ndarray:
@@ -195,11 +199,11 @@ class JaxModelRunner:
 
     # ------------------------------------------------------------- kv cache
 
-    def get_kv_cache_spec(self) -> dict[str, Any]:
-        from .kv_spec import build_kv_cache_spec
+    def get_kv_cache_layer_configs(self) -> dict[str, Any]:
+        from .kv_spec import build_kv_cache_layer_configs
 
         num_layers, num_kv_heads, head_dim = self.model_geometry()
-        return build_kv_cache_spec(
+        return build_kv_cache_layer_configs(
             num_layers=num_layers,
             num_kv_heads=num_kv_heads,
             head_size=head_dim,
@@ -351,8 +355,9 @@ class JaxModelRunner:
                 "between; the first step's logits would be discarded"
             )
 
-        # Retire first: a finished request's id may be reused by a new one in
-        # the same scheduler output.
+        _refuse_block_edits(scheduler_output)
+        # Retire first: a finished request's id may be reused by a new one, and
+        # a preempted request may come back as a new one, in the same output.
         self._retire(scheduler_output)
         self._admit(scheduler_output)
         self.batch_state.apply(scheduler_output)
@@ -478,7 +483,6 @@ class JaxModelRunner:
 
         return ModelRunnerOutput(
             req_ids=[r.request_id for r in requests],
-            req_id_to_index={r.request_id: i for i, r in enumerate(requests)},
             sampled_token_ids=emitted,
         )
 
@@ -488,16 +492,24 @@ class JaxModelRunner:
         if self.tracker is None:
             raise RuntimeError("the KV cache must be initialized before admitting requests")
         for new in getattr(scheduler_output, "scheduled_new_reqs", ()) or ():
+            if new.req_id in self.requests:
+                raise ValueError(
+                    f"request {new.req_id!r} was sent as new while still active. "
+                    "vLLM does that to continue a streaming-input session, which "
+                    "this platform does not serve"
+                )
             self.tracker.admit(new.req_id)
             self.requests[new.req_id] = RequestTokens(
-                new.req_id, new.prompt_token_ids, new.sampling_params
+                new.req_id, new.prefill_token_ids, new.sampling_params
             )
 
     def _retire(self, scheduler_output: Any) -> None:
-        for finished in getattr(scheduler_output, "finished_req_ids", ()) or ():
-            self.requests.pop(finished, None)
+        # A preempted request gives up its blocks and comes back later as a new
+        # request, possibly in this same scheduler output.
+        for request_id in retired_request_ids(scheduler_output):
+            self.requests.pop(request_id, None)
             if self.tracker is not None:
-                self.tracker.retire(finished)
+                self.tracker.retire(request_id)
 
     def _tokens_for(self, request: RequestPages) -> np.ndarray:
         return self.requests[request.request_id].slice(
@@ -524,13 +536,27 @@ class JaxModelRunner:
         out: list[list[int]] = []
         for row, request in enumerate(requests):
             state = self.requests[request.request_id]
-            if request.seq_len < state.num_prompt_tokens:
+            if request.seq_len < state.num_prefill_tokens:
                 out.append([])
                 continue
             token = int(sampled[row])
             state.tokens.append(token)
             out.append([token])
         return out
+
+
+def _refuse_block_edits(scheduler_output: Any) -> None:
+    """Fail on block zeroing or copy-on-write requests from the scheduler.
+
+    vLLM asks for these only for Mamba layers, mixed-precision KV and partial
+    prefix hits, none of which this platform serves. Skipping one would leave a
+    request attending to whatever its page last held.
+    """
+    for name in ("new_block_ids_to_zero", "kv_cache_block_copies"):
+        if getattr(scheduler_output, name, None):
+            raise RuntimeError(
+                f"the scheduler sent {name}, which this platform does not apply"
+            )
 
 
 def _pad(values: np.ndarray, width: int, fill) -> np.ndarray:
