@@ -255,7 +255,7 @@ def test_a_roctx_range_spans_the_step_from_dispatch_to_the_sampled_tokens():
 
     runner._roctx = FakeRoctx()
     runner.execute_model(a_scheduler_output())
-    assert events == [("start", "JAX_VLLM_STEP")]
+    assert events == [("start", "VXG_STEP")]
 
     runner.sample_tokens(None)
-    assert events == [("start", "JAX_VLLM_STEP"), ("stop", 7)]
+    assert events == [("start", "VXG_STEP"), ("stop", 7)]

@@ -2,7 +2,7 @@
 
 vLLM-XLA-GPU runs in the TheRock ROCm container jax-titan uses, on jax-titan's
 JAX build, with a CPU-only torch and vLLM built with no kernels of its own. The
-source trees, the venv and the compilation cache live in `JAX_VLLM_GPU_ROOT`,
+source trees, the venv and the compilation cache live in `VXG_ROOT`,
 which defaults to `.vllm_xla_gpu` next to this repository.
 
 ## 1. Container
@@ -97,9 +97,9 @@ Run one GPU invocation at a time, and from the host wrap each in `timeout`: a
 JAX_PLATFORMS=cpu DECOUPLE_GCLOUD=TRUE python -m pytest tests -q
 
 # GPU: everything, including the KV kernels and the engine parity tests.
-# 470 passed, 1 skipped on 8x MI325X. JAX_VLLM_REQUIRE_GPU=1 fails the run if
+# 470 passed, 1 skipped on 8x MI325X. VXG_REQUIRE_GPU=1 fails the run if
 # JAX falls back to the CPU, instead of skipping every GPU test.
-DECOUPLE_GCLOUD=TRUE JAX_VLLM_REQUIRE_GPU=1 python -m pytest tests -q
+DECOUPLE_GCLOUD=TRUE VXG_REQUIRE_GPU=1 python -m pytest tests -q
 
 # The skipped one compares against MaxText's dense path, which needs exactly
 # the engine's device visible. 11 passed, with the attention-layer tests.

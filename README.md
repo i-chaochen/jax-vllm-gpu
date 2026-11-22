@@ -102,10 +102,16 @@ the tests and the smoke runs.
 
 | variable | effect |
 |---|---|
-| `VLLM_JAX_PLATFORM` | `1` forces the plugin on, `0` forces it off. vLLM swallows exceptions from platform probes, so a probe failure otherwise looks like the wheel being absent. |
-| `JAX_VLLM_ROCTX` | `1` opens one ROCTX range per serving step, from dispatch until the sampled tokens reach the host, labelled with the step's shape, for lining up steps with GPU work in rocprofv3. Fails at startup if `librocprofiler-sdk-roctx` is missing. |
+| `VXG_PLATFORM` | `1` forces the plugin on, `0` forces it off. vLLM swallows exceptions from platform probes, so a probe failure otherwise looks like the wheel being absent. |
+| `VXG_ROCTX` | `1` opens one ROCTX range per serving step, from dispatch until the sampled tokens reach the host, labelled with the step's shape, for lining up steps with GPU work in rocprofv3. Fails at startup if `librocprofiler-sdk-roctx` is missing. |
 | `VLLM_PLUGINS` | Allowlist of entry point names. Needed when another JAX platform plugin is installed beside this one, since vLLM refuses to activate two. |
 | `VLLM_TARGET_DEVICE` | **Hazard.** `cpu` makes vLLM return its CPU platform before loading any plugin, so this one is never probed. Keep it unset. |
+
+This project's own variables start with `VXG_`, not `VLLM_`: vLLM warns about
+every `VLLM_*` variable it does not define, and rejects them when
+`fail_on_environ_validation` is set. The scripts use `VXG_ROOT` for the
+directory that holds the source trees and the venv, and the tests use
+`VXG_REQUIRE_GPU`.
 
 ## Roadmap
 

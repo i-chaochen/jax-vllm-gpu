@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Creates the MaxText and vLLM source trees in ${JAX_VLLM_GPU_ROOT}/src at their
+# Creates the MaxText and vLLM source trees in ${VXG_ROOT}/src at their
 # pins, and applies the hook patch from third_party/patches to MaxText. Git
 # only, so it runs on the host or in the container. A tree that exists is left
 # as it is.
@@ -10,14 +10,14 @@
 # is cloned, with full history, which setuptools-scm needs to name vLLM's
 # version.
 #
-# Environment: JAX_VLLM_GPU_ROOT, MAXTEXT_REPO, MAXTEXT_REV, VLLM_REPO, VLLM_REV.
+# Environment: VXG_ROOT, MAXTEXT_REPO, MAXTEXT_REV, VLLM_REPO, VLLM_REV.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
 WORKSPACE=$(dirname "$REPO")
-JAX_VLLM_GPU_ROOT=${JAX_VLLM_GPU_ROOT:-$WORKSPACE/.vllm_xla_gpu}
+VXG_ROOT=${VXG_ROOT:-$WORKSPACE/.vllm_xla_gpu}
 PATCHES=$REPO/third_party/patches
-SRC=$JAX_VLLM_GPU_ROOT/src
+SRC=$VXG_ROOT/src
 # maxtext-v0.2.5, the release jax-titan uses.
 MAXTEXT_REV=${MAXTEXT_REV:-493d5928156869b70f7198ba7bbd1a7f779233d9}
 MAXTEXT_REPO=${MAXTEXT_REPO:-$WORKSPACE/maxtext}

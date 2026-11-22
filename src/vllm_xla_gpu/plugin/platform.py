@@ -29,7 +29,7 @@ PLATFORM_QUALNAME = "vllm_xla_gpu.plugin.platform.JaxPlatform"
 # Set to "1" to force activation or "0" to force the plugin off. Without this,
 # a probe failure is indistinguishable from the wheel not being installed,
 # because vLLM swallows exceptions raised by platform plugins.
-FORCE_ENV_VAR = "VLLM_JAX_PLATFORM"
+FORCE_ENV_VAR = "VXG_PLATFORM"
 
 # Present whenever the amdgpu kernel driver has exposed a compute device. This
 # is checked instead of importing jax and calling jax.devices(), which would

@@ -129,7 +129,7 @@ class JaxModelRunner:
         # Carries one step's logits from execute_model to sample_tokens.
         self._pending: PendingStep | None = None
 
-        # One ROCTX range per step when JAX_VLLM_ROCTX=1; None loads nothing.
+        # One ROCTX range per step when VXG_ROCTX=1; None loads nothing.
         self._roctx = Roctx.from_environment()
         self._roctx_steps = 0
 
@@ -393,7 +393,7 @@ class JaxModelRunner:
         if self._roctx is not None:
             self._roctx_steps += 1
             roctx_range = self._roctx.start(
-                f"JAX_VLLM_STEP index={self._roctx_steps} decode={int(shape.is_decode)} "
+                f"VXG_STEP index={self._roctx_steps} decode={int(shape.is_decode)} "
                 f"requests={len(requests)} "
                 f"active_tokens={sum(r.num_scheduled_tokens for r in requests)} "
                 f"tokens={shape.num_tokens} max_seqlen_k={shape.max_seqlen_k}"

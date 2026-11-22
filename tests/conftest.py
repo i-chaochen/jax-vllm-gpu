@@ -3,7 +3,7 @@
 
 Unmarked tests run everywhere. Nothing here skips them on a GPU host, so a
 run's pass and skip counts say what it actually exercised. On a GPU runner set
-`JAX_VLLM_REQUIRE_GPU=1`: a JAX that fell back to the CPU then fails the run
+`VXG_REQUIRE_GPU=1`: a JAX that fell back to the CPU then fails the run
 rather than skipping every GPU test and reporting green.
 """
 
@@ -15,7 +15,7 @@ import sys
 
 import pytest
 
-REQUIRE_GPU_ENV_VAR = "JAX_VLLM_REQUIRE_GPU"
+REQUIRE_GPU_ENV_VAR = "VXG_REQUIRE_GPU"
 
 
 @functools.cache

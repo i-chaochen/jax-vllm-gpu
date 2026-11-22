@@ -7,7 +7,7 @@ import ctypes
 import ctypes.util
 import os
 
-ROCTX_ENV_VAR = "JAX_VLLM_ROCTX"
+ROCTX_ENV_VAR = "VXG_ROCTX"
 
 
 class Roctx:
@@ -34,7 +34,7 @@ class Roctx:
 
     @classmethod
     def from_environment(cls) -> "Roctx | None":
-        """The binding when `JAX_VLLM_ROCTX=1`, else None without loading anything."""
+        """The binding when `VXG_ROCTX=1`, else None without loading anything."""
         if os.environ.get(ROCTX_ENV_VAR) != "1":
             return None
         path = ctypes.util.find_library("rocprofiler-sdk-roctx")
