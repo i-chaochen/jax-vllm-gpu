@@ -35,7 +35,7 @@ The tested set, 2026-11-19:
 
 | Component | Version |
 |---|---|
-| ROCm | TheRock 10.1, gfx942 (MI300X) |
+| ROCm | TheRock 10.1, gfx942 (MI300X, MI325X) |
 | jax, jaxlib | 0.12.1.dev0, jax-titan's build of jax `6b39d495e5` and XLA `d23c30982a` |
 | jax-rocm10-plugin, jax-rocm10-pjrt | the same build, for gfx942 |
 | MaxText | `maxtext-v0.2.5` (`493d59281`) with the hook patch |
@@ -54,9 +54,10 @@ the 2.4 that vLLM's mistral-common allows on Python 3.12, and transformers
 jax and jaxlib are the wheels of jax-titan's release
 [`jax-wheels-2026-11-10-6b39d49-rocm`](https://github.com/ROCm/jax-titan/releases/tag/jax-wheels-2026-11-10-6b39d49-rocm);
 their CPU code is the same for every GPU. That release's ROCm plugin wheels
-hold gfx950 code only, so for MI300X the two plugin wheels are built for
-gfx942 with jax-titan's own scripts, from a jax-titan checkout (`e1edc4c` was
-used) whose `scripts/setup_sources.sh` names the release's revisions:
+hold gfx950 code only, so for MI300X and MI325X the two plugin wheels are
+built for gfx942 with jax-titan's own scripts, from a jax-titan checkout
+(`e1edc4c` was used) whose `scripts/setup_sources.sh` names the release's
+revisions:
 
 ```bash
 # jax, xla and shardy trees at those revisions, with jax-titan's patches. Git only.
@@ -96,7 +97,7 @@ Run one GPU invocation at a time, and from the host wrap each in `timeout`: a
 JAX_PLATFORMS=cpu DECOUPLE_GCLOUD=TRUE python -m pytest tests -q
 
 # GPU: everything, including the KV kernels and the engine parity tests.
-# 470 passed, 1 skipped on 8x MI300X. JAX_VLLM_REQUIRE_GPU=1 fails the run if
+# 470 passed, 1 skipped on 8x MI325X. JAX_VLLM_REQUIRE_GPU=1 fails the run if
 # JAX falls back to the CPU, instead of skipping every GPU test.
 DECOUPLE_GCLOUD=TRUE JAX_VLLM_REQUIRE_GPU=1 python -m pytest tests -q
 
@@ -179,7 +180,7 @@ python tools/bench_latency.py \
   --maxtext load_parameters_path=/data/cchen104/maxtext_ckpt_70b/0/items
 ```
 
-On 8x MI300X, 2026-11-19, with 130-token prompts and no compiles in any timed
+On 8x MI325X, 2026-11-19, with 130-token prompts and no compiles in any timed
 window, against the previous stack (ROCm 7.2, jax 0.10.2, MaxText
 `30105a4c0`) measured the same day:
 

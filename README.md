@@ -17,7 +17,7 @@ runtime serves models two ways:
 
 ## What works
 
-- Llama-3.3-70B at TP=8 on 8x MI300X through vLLM's engine, with the KV pool
+- Llama-3.3-70B at TP=8 on 8x MI325X through vLLM's engine, with the KV pool
   sharded over KV heads.
 - vLLM's chunked prefill, preemption with recompute and prefix caching, each
   driven by vLLM's own scheduler (`tools/smoke_engine.py`). Greedy output is
@@ -29,7 +29,7 @@ runtime serves models two ways:
 - Pages another request wrote are scrubbed before reuse, tested against vLLM's
   block lifecycle with a negative control.
 
-On 8x MI300X, Llama-3.3-70B at TP=8 through vLLM decodes at 34.8 ms per step
+On 8x MI325X, Llama-3.3-70B at TP=8 through vLLM decodes at 34.8 ms per step
 for one request and 25.2 ms for eight, 318 tokens/s, with 130-token prompts.
 
 ## How MaxText is used
