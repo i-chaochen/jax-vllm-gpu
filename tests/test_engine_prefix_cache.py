@@ -49,6 +49,7 @@ from flax.linen import partitioning as nn_partitioning
 
 from maxtext.common.common_types import MODEL_MODE_PREFILL
 from maxtext.configs import pyconfig
+from jax_vllm_gpu.engine.config import PagedConfig
 from jax_vllm_gpu.kv.common import CacheNamespace
 from maxtext.utils import maxtext_utils, model_creation_utils
 
@@ -92,15 +93,10 @@ _COMMON = {
     "decode_sampling_strategy": "greedy",
     "enable_checkpointing": False,
     "skip_jax_distributed_system": True,
-    "pure_nnx": True,
 }
 
-_PAGED = {
-    "attention": "gpu_paged",
-    "paged_page_size": PAGE,
-    "paged_num_blocks": 64,
-    "paged_enable_prefix_cache": True,
-}
+_PAGED = {"attention": "gpu_paged"}
+_POOL = PagedConfig(page_size=PAGE, num_blocks=64, enable_prefix_cache=True)
 
 NAMESPACE = CacheNamespace(model_fingerprint="test-random-weights", tokenizer="test")
 
@@ -145,7 +141,7 @@ class GpuPagedPrefixCacheTest(parameterized.TestCase):
     _, self.params_state, _ = nnx.split(model, nnx.Param, ...)
 
   def _engine(self):
-    engine = PagedEngine(self.cfg, _devices())
+    engine = PagedEngine(self.cfg, _devices(), paged=_POOL)
     params = engine.load_params(params=self.params_state)
     runtime = engine.init_paged_runtime()
     return engine, params, runtime

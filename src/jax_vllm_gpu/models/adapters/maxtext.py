@@ -60,11 +60,7 @@ def forward_serve_gpu_paged(
   # That is a wrong answer rather than a crash, and no comparison of the sharded
   # step against the single-device step can see it, because such a test passes
   # the same scale to both sides.
-  kernel_kwargs = dict(
-      backend=getattr(self.config, "paged_attention_backend", "auto"),
-      scale=1.0,
-      causal=True,
-  )
+  kernel_kwargs = dict(backend="auto", scale=1.0, causal=True)
   axes = paged_attention.kv_head_axes(self.mesh)
   if axes:
     # Tensor parallelism: the kernels have to run in manual mode, because XLA

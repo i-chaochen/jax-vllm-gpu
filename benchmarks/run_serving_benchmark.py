@@ -42,6 +42,7 @@ from flax.linen import partitioning as nn_partitioning
 
 from maxtext.common.common_types import MODEL_MODE_PREFILL
 from maxtext.configs import pyconfig
+from jax_vllm_gpu.engine.config import PagedConfig
 from jax_vllm_gpu.kv.execution import benchmark
 from maxtext.utils import maxtext_utils, model_creation_utils
 from maxtext.utils.globals import MAXTEXT_CONFIGS_DIR
@@ -67,7 +68,6 @@ BASE_CONFIG = {
     "decode_sampling_strategy": "greedy",
     "enable_checkpointing": False,
     "skip_jax_distributed_system": True,
-    "pure_nnx": True,
 }
 
 
@@ -90,21 +90,26 @@ def build_config(mode: str, args) -> object:
   overrides["base_num_decoder_layers"] = args.layers
   overrides["base_emb_dim"] = args.emb_dim
   overrides["base_mlp_dim"] = args.emb_dim * 2
-  dense_kv_tokens = args.max_batch * args.max_context
 
   if mode == "dense":
     overrides["attention"] = "dot_product"
     overrides["per_device_batch_size"] = float(args.max_batch)
   else:
     overrides["attention"] = "gpu_paged"
-    overrides["paged_page_size"] = args.page_size
-    overrides["paged_num_blocks"] = dense_kv_tokens // args.page_size
-    overrides["paged_max_context_len"] = args.max_context
     overrides["per_device_batch_size"] = float(args.max_batch)
-    overrides["paged_enable_prefix_cache"] = bool(args.prefix_cache)
 
   overrides["run_name"] = f"paged_bench_{mode}"
   return pyconfig.initialize([sys.argv[0], args.config_path], **overrides)
+
+
+def build_pool(args) -> PagedConfig:
+  """The paged arm's pool: the same KV budget the dense arm's slots hold."""
+  return PagedConfig(
+      page_size=args.page_size,
+      num_blocks=args.max_batch * args.max_context // args.page_size,
+      max_context_len=args.max_context,
+      enable_prefix_cache=bool(args.prefix_cache),
+  )
 
 
 def build_params(cfg, devices):
@@ -189,7 +194,7 @@ def main() -> int:
   for arm in arms:
     cfg = build_config(arm, args)
     params_state = build_params(cfg, devices)
-    engine = PagedEngine(cfg, devices)
+    engine = PagedEngine(cfg, devices, paged=build_pool(args) if arm == "paged" else None)
     params = engine.load_params(params=params_state)
 
     # A factory rather than one list: each repeat needs requests with no

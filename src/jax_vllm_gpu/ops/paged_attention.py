@@ -47,18 +47,25 @@ import jax
 import jax.numpy as jnp
 
 
+@jax.tree_util.register_dataclass
 @dataclasses.dataclass(frozen=True)
 class PagedPlan:
-  """One step's page bookkeeping, as the device arrays the kernels take."""
+  """One step's page bookkeeping, as the device arrays the kernels take.
+
+  A pytree, because MaxText hands the attention metadata to each layer through
+  `jax.checkpoint`, which takes only pytrees of arrays. The sizes and the mode
+  are static: they choose kernels and shapes. A subclass must register itself
+  too, since registration is per type.
+  """
 
   slot_mapping: jax.Array       # [total_tokens]     where each new token is written
   kv_indptr: jax.Array          # [num_seqs + 1]     prefix sum over page counts
   kv_page_indices: jax.Array    # [>= total_pages]   page ids, packed in request order
   kv_last_page_lens: jax.Array  # [num_seqs]         occupancy of each final page
   cu_seqlens_q: jax.Array       # [num_seqs + 1]     prefix sum over query lengths
-  max_seqlen_q: int
-  max_seqlen_k: int
-  is_decode: bool
+  max_seqlen_q: int = dataclasses.field(metadata=dict(static=True))
+  max_seqlen_k: int = dataclasses.field(metadata=dict(static=True))
+  is_decode: bool = dataclasses.field(metadata=dict(static=True))
 
 
 def is_neutral_page_table(metadata: Any) -> bool:
@@ -247,7 +254,7 @@ KV_HEAD_MESH_AXES = (
     "tensor_transpose",
     "tensor_sequence",
     # The vLLM serving mesh, as named in configs/inference/vllm.yml, whose
-    # logical rules map `paged_kv_heads` onto ['expert', 'model']. The two
+    # logical rules map `paged_kv_heads` onto ['model', 'expert']. The two
     # namings are disjoint, so accepting both cannot mis-detect either: a mesh
     # carrying 'model' never carries 'tensor'.
     "model",

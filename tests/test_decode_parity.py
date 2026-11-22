@@ -46,6 +46,8 @@ from maxtext.common.common_types import MODEL_MODE_PREFILL, MODEL_MODE_TRAIN
 from maxtext.configs import pyconfig
 from maxtext.utils import maxtext_utils, model_creation_utils
 
+from jax_vllm_gpu.engine.config import PagedConfig
+
 try:
   from maxtext.inference.maxengine import maxengine
   from jax_vllm_gpu.engine.paged_engine import PagedEngine
@@ -61,7 +63,34 @@ except ModuleNotFoundError as _exc:  # pragma: no cover - environment dependent
       allow_module_level=True,
   )
 
+from maxtext.common.gcloud_stub import is_decoupled  # pylint: disable=wrong-import-position
 from maxtext_test_config import get_test_config_path  # pylint: disable=wrong-import-position
+
+
+def _register_stub_result_tokens():
+  """Make the JetStream stub's `ResultTokens` a pytree, as JetStream's own is.
+
+  The dense reference runs `MaxEngine.prefill`, which returns a `ResultTokens`
+  from inside `jit`, and `jit` returns only pytrees. The arrays are children; the
+  index tuples and the sample count are static, so they survive tracing.
+  """
+  cls = maxengine.engine_api.ResultTokens
+  jax.tree_util.register_pytree_node(
+      cls,
+      lambda t: ((t.data, t.log_prob), (t.tokens_idx, t.valid_idx, t.length_idx, t.samples_per_slot)),
+      lambda aux, children: cls(
+          data=children[0],
+          log_prob=children[1],
+          tokens_idx=aux[0],
+          valid_idx=aux[1],
+          length_idx=aux[2],
+          samples_per_slot=aux[3],
+      ),
+  )
+
+
+if is_decoupled():
+  _register_stub_result_tokens()
 
 PROMPT = [3, 17, 42, 5, 9, 21, 33, 2]
 # 8 prompt tokens plus 45 generated is 53, so the context spans four pages and
@@ -120,17 +149,13 @@ _COMMON = {
     "decode_sampling_strategy": "greedy",
     "enable_checkpointing": False,
     "skip_jax_distributed_system": True,
-    "pure_nnx": True,
 }
 
 _DENSE = {"attention": "dot_product"}
-_PAGED = {
-    "attention": "gpu_paged",
-    "paged_page_size": PAGE,
-    # 1024 tokens of pool, comfortably more than one request needs, so nothing
-    # here depends on recycling. The recycling path has its own tests.
-    "paged_num_blocks": 64,
-}
+_PAGED = {"attention": "gpu_paged"}
+# 1024 tokens of pool, comfortably more than one request needs, so nothing here
+# depends on recycling. The recycling path has its own tests.
+_POOL = PagedConfig(page_size=PAGE, num_blocks=64)
 
 
 def _require_kernels():
@@ -259,7 +284,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
 
   def _paged_rollout(self, cfg, params_state, steps=STEPS):
     """Greedy decode on the page pool, through the sibling entry points."""
-    engine = PagedEngine(cfg, _devices())
+    engine = PagedEngine(cfg, _devices(), paged=_POOL)
     params = engine.load_params(params=params_state)
     runtime = engine.init_paged_runtime()
 
@@ -390,7 +415,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
     params_state = self._build_params(cfg)
     reference = self._paged_rollout(cfg, params_state, steps=STEPS)
 
-    engine = PagedEngine(cfg, _devices())
+    engine = PagedEngine(cfg, _devices(), paged=_POOL)
     params = engine.load_params(params=params_state)
     runtime = engine.init_paged_runtime()
     driver = PagedDriver(
@@ -446,7 +471,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
 
     separate = []
     for index, prompt in enumerate((first, second)):
-      engine = PagedEngine(cfg, _devices())
+      engine = PagedEngine(cfg, _devices(), paged=_POOL)
       params = engine.load_params(params=params_state)
       engine.init_paged_runtime()
       padded = jnp.asarray(
@@ -461,7 +486,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
 
     # Now both in one packed step, driven at the seam rather than through the
     # single-request entry point.
-    engine = PagedEngine(cfg, _devices())
+    engine = PagedEngine(cfg, _devices(), paged=_POOL)
     params = engine.load_params(params=params_state)
     # Two rows explicitly: `init_paged_runtime` defaults to the dense batch width,
     # which is one here, and a one-row page map cannot hold a two-request batch.
@@ -514,16 +539,14 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
     # pylint: disable=import-outside-toplevel
     import jax.numpy as jnp
 
-    from maxtext.inference import offline_engine
-
-    from jax_vllm_gpu.engine.offline import PagedInferenceWorker
+    from jax_vllm_gpu.engine.offline import InputData, PagedInferenceWorker
 
     prompts = [list(range(3, 15)), list(range(40, 48)), list(range(90, 106))]
     cfg = _config(**_PAGED, return_log_prob=True)
 
     # Reference: one request at a time through the entry points.
     reference = {}
-    engine = PagedEngine(cfg, _devices())
+    engine = PagedEngine(cfg, _devices(), paged=_POOL)
     params_state = self._build_params(cfg)
     params = engine.load_params(params=params_state)
     engine.init_paged_runtime(max_requests=4, max_batched_tokens=cfg.max_prefill_predict_length)
@@ -537,7 +560,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
       )
       self.assertIsNotNone(handle)
       tokens = [int(first.data[0, 0])]
-      for _ in range(min(budget, cfg.paged_max_context_len - len(prompt)) - 1):
+      for _ in range(min(budget, engine.paged.max_context_len - len(prompt)) - 1):
         result, ok = engine.generate_paged(
             params, [handle], next_tokens=jnp.asarray([tokens[-1]], jnp.int32)
         )
@@ -557,11 +580,12 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
         tokenizer=object(),
         eos_ids=[-1],
         max_decode_length=budget,
+        paged=_POOL,
         max_batched_tokens=cfg.max_prefill_predict_length,
     )
     outputs = worker.run_inference(
         [
-            offline_engine.InputData(id=f"p{i}", tokens=np.asarray(p, np.int32), true_length=len(p))
+            InputData(id=f"p{i}", tokens=np.asarray(p, np.int32), true_length=len(p))
             for i, p in enumerate(prompts)
         ]
     )
@@ -583,7 +607,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
   def test_the_paged_path_allocates_no_dense_cache(self):
     """A dense cache alongside the pool would waste gigabytes at real sizes."""
     cfg = _config(**_PAGED)
-    engine = PagedEngine(cfg, _devices())
+    engine = PagedEngine(cfg, _devices(), paged=_POOL)
     params = engine.load_params(params=self._build_params(cfg))
     runtime = engine.init_paged_runtime()
 
@@ -607,7 +631,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
     step would show up as a rising live-buffer count.
     """
     cfg = _config(**_PAGED)
-    engine = PagedEngine(cfg, _devices())
+    engine = PagedEngine(cfg, _devices(), paged=_POOL)
     params = engine.load_params(params=self._build_params(cfg))
     runtime = engine.init_paged_runtime()
 

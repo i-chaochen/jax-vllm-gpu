@@ -23,9 +23,12 @@ from __future__ import annotations
 import dataclasses
 from typing import Any
 
+import jax
+
 from jax_vllm_gpu.ops.paged_attention import PagedPlan
 
 
+@jax.tree_util.register_dataclass
 @dataclasses.dataclass(frozen=True)
 class PagedPlanWithPositions(PagedPlan):
     """A `PagedPlan` that also carries the positions the adapter needs."""

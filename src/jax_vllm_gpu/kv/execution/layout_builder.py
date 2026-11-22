@@ -145,23 +145,23 @@ def kv_pool_sharding(mesh: Any | None, layout: KvStorageLayoutV1) -> Any | None:
   return jax.sharding.NamedSharding(pool_mesh, spec)
 
 
-def build_storage_layout(config: Any, mesh: Any | None = None) -> KvStorageLayoutV1:
-  """Derive pool geometry from a MaxText config.
+def build_storage_layout(
+    config: Any, mesh: Any | None = None, *, tokens_per_page: int, usable_pages: int
+) -> KvStorageLayoutV1:
+  """Derive pool geometry from a MaxText config and the pool's size.
 
   `num_pages` includes the reserved padding page, so the pool holds
-  `paged_num_blocks` usable pages plus one. Sizing the pool as exactly
-  `paged_num_blocks` and then reserving one out of it would silently cost a page
-  of capacity relative to what the config asked for.
+  `usable_pages` pages plus one. Sizing the pool as exactly `usable_pages` and
+  then reserving one out of it would silently cost a page of capacity relative
+  to what was asked for.
   """
   num_kv_heads = int(getattr(config, "num_kv_heads", 0) or 0)
   head_dim = int(getattr(config, "head_dim", 0) or 0)
   num_layers = int(getattr(config, "num_decoder_layers", 0) or getattr(config, "base_num_decoder_layers", 0) or 0)
-  tokens_per_page = int(getattr(config, "paged_page_size", 16))
-  usable_pages = int(getattr(config, "paged_num_blocks", 0) or 0)
+  tokens_per_page = int(tokens_per_page)
+  usable_pages = int(usable_pages)
   if usable_pages < 1:
-    raise ValueError(
-        f"paged_num_blocks must be at least 1 for attention='gpu_paged', got {usable_pages}"
-    )
+    raise ValueError(f"the pool needs at least 1 usable page, got {usable_pages}")
 
   dtype = str(getattr(config, "dtype", "bfloat16"))
 

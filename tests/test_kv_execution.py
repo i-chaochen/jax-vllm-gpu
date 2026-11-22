@@ -80,8 +80,6 @@ class _FakeConfig:
     self.num_kv_heads = 4
     self.head_dim = 128
     self.num_decoder_layers = 8
-    self.paged_page_size = PAGE
-    self.paged_num_blocks = 256
     self.dtype = "bfloat16"
     for key, value in kw.items():
       setattr(self, key, value)
@@ -493,16 +491,20 @@ class StepInputsTest(unittest.TestCase):
 class LayoutBuilderTest(unittest.TestCase):
   """Config and mesh into pool geometry."""
 
+  @staticmethod
+  def _layout(mesh=None, usable_pages=256):
+    return build_storage_layout(_FakeConfig(), mesh, tokens_per_page=PAGE, usable_pages=usable_pages)
+
   def test_it_reads_the_model_dimensions(self):
-    layout = build_storage_layout(_FakeConfig())
+    layout = self._layout()
     self.assertEqual(layout.tokens_per_page, PAGE)
     self.assertEqual(layout.num_kv_heads, 4)
     self.assertEqual(layout.head_dim, 128)
     self.assertEqual(layout.num_layers, 8)
 
   def test_the_reserved_page_is_added_rather_than_taken_out_of_capacity(self):
-    """paged_num_blocks is what the operator asked to be usable."""
-    layout = build_storage_layout(_FakeConfig(paged_num_blocks=256))
+    """The usable page count is what the operator asked for."""
+    layout = self._layout(usable_pages=256)
     self.assertEqual(layout.num_pages, 257)
     self.assertEqual(layout.max_tokens(), 256 * PAGE)
 
@@ -510,7 +512,7 @@ class LayoutBuilderTest(unittest.TestCase):
     """Two sources of truth for TP width is how a pool ends up a factor too small."""
     mesh = _FakeMesh({"data": 2, "tensor": 4})
     self.assertEqual(kv_head_shards(mesh), 4)
-    self.assertEqual(build_storage_layout(_FakeConfig(), mesh).kv_head_shards, 4)
+    self.assertEqual(self._layout(mesh).kv_head_shards, 4)
 
   def test_multiple_tensor_axes_multiply(self):
     self.assertEqual(kv_head_shards(_FakeMesh({"tensor": 2, "tensor_sequence": 2})), 4)
@@ -519,8 +521,8 @@ class LayoutBuilderTest(unittest.TestCase):
     self.assertEqual(kv_head_shards(None), 1)
 
   def test_an_unset_pool_size_is_refused(self):
-    with self.assertRaisesRegex(ValueError, "paged_num_blocks"):
-      build_storage_layout(_FakeConfig(paged_num_blocks=0))
+    with self.assertRaisesRegex(ValueError, "at least 1 usable page"):
+      self._layout(usable_pages=0)
 
 
 class _CountingStep:

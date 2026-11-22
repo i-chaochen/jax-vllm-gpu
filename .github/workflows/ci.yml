@@ -1,11 +1,14 @@
 # Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: Apache-2.0
 #
-# The paged KV control plane (kv.common and kv.control) imports only the
-# standard library and numpy, and tests/test_kv_import_rule.py keeps it that
-# way, so its tests run on a hosted runner with nothing else installed. The
-# plugin, the engine and the kernels need the ROCm JAX stack, vLLM and MaxText;
-# docs/getting_started.md runs those.
+# Three jobs. The control plane (kv.common and kv.control) and the engine's
+# config import only the standard library and numpy, so their tests run with
+# nothing else installed. The CPU job installs the whole stack with
+# scripts/install_python_env.sh -- jax-titan's jax and jaxlib, vLLM at
+# vllm_lkg.version, MaxText with the hook patch -- and runs every test, the
+# gpu_only ones skipping. The GPU job runs them on a self-hosted gfx942 runner in
+# the TheRock container, and only where the repository variable GPU_RUNNER names
+# one. Package versions come from .github/ci-constraints.txt.
 
 name: CI
 
@@ -21,6 +24,14 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # jax and jaxlib, built by jax-titan at the revisions of its
+  # scripts/setup_sources.sh. Their CPU code is the same for every GPU.
+  JAX_WHEELS: https://github.com/ROCm/jax-titan/releases/download/jax-wheels-2026-11-10-6b39d49-rocm
+  # The ROCm plugin wheels of the same build for gfx942, a release of this
+  # repository. .github/ci-wheels.sha256 names every wheel.
+  GPU_WHEELS: jax-rocm-plugins-2026-11-19-6b39d49-gfx942
 
 jobs:
   control-plane-tests:
@@ -46,6 +57,109 @@ jobs:
           tests/test_kv_import_rule.py
           tests/test_kv_prefix_cache.py
           tests/test_kv_residency.py
+          tests/test_engine_config.py
           tests/test_no_maxtext_runtime_copies.py
           tests/test_profiling.py
           tests/test_agent_skills.py
+
+  cpu-tests:
+    name: CPU tests (full stack)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Download jax and jaxlib
+        run: |
+          mkdir wheels
+          grep -E ' wheels/jax(lib)?-' .github/ci-wheels.sha256 > "$RUNNER_TEMP/cpu-wheels.sha256"
+          while read -r _ file; do
+            curl --fail --silent --show-error --location --output "$file" \
+              "$JAX_WHEELS/$(basename "${file//+/%2B}")"
+          done < "$RUNNER_TEMP/cpu-wheels.sha256"
+          sha256sum --check "$RUNNER_TEMP/cpu-wheels.sha256"
+      - name: Check out MaxText and vLLM at their pins
+        env:
+          JAX_VLLM_GPU_ROOT: ${{ runner.temp }}
+        run: scripts/setup_sources.sh
+      - name: Install
+        env:
+          WHEELS: wheels
+          VLLM_SRC: ${{ runner.temp }}/src/vllm
+          MAXTEXT_SRC: ${{ runner.temp }}/src/maxtext
+        run: scripts/install_python_env.sh
+      - name: Show installed versions
+        run: python -m pip freeze
+      - name: Run tests
+        env:
+          JAX_PLATFORMS: cpu
+          DECOUPLE_GCLOUD: "TRUE"
+        run: python -m pytest tests/ -rs
+
+  gpu-tests:
+    name: GPU tests (gfx942)
+    # A pull request from a fork never runs on a self-hosted runner.
+    if: >-
+      vars.GPU_RUNNER != '' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ${{ vars.GPU_RUNNER }}
+    timeout-minutes: 90
+    container:
+      image: ghcr.io/rocm/jax-base-ubu24.therock-10.1@sha256:9abb85fde7485b89db61f87d5f583bb1c3b980d479fff7d6d7ed988d652c57b3
+      options: --device=/dev/kfd --device=/dev/dri --group-add video --shm-size 64G
+    defaults:
+      run:
+        shell: bash
+    env:
+      # A GPU memory fault otherwise writes all GPU memory to the working directory as a core dump.
+      HSA_DISABLE_COREDUMP_ON_EXCEPTION: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Show the GPUs
+        run: |
+          # TheRock images have no /opt/rocm; rocminfo is in the SDK's bin directory.
+          export PATH="$(rocm-sdk path --bin):$PATH"
+          rocminfo | grep gfx
+      - name: Download the wheels
+        run: |
+          mkdir wheels
+          while read -r _ file; do
+            case $file in
+              wheels/jax-*|wheels/jaxlib-*) url=$JAX_WHEELS ;;
+              *) url=https://github.com/$GITHUB_REPOSITORY/releases/download/$GPU_WHEELS ;;
+            esac
+            curl --fail --silent --show-error --location --output "$file" "$url/$(basename "${file//+/%2B}")"
+          done < .github/ci-wheels.sha256
+          sha256sum --check .github/ci-wheels.sha256
+      - name: Check out MaxText and vLLM at their pins
+        env:
+          JAX_VLLM_GPU_ROOT: ${{ runner.temp }}
+        run: scripts/setup_sources.sh
+      - name: Install
+        # --system-site-packages: the container's ROCm is a set of Python packages.
+        env:
+          WHEELS: wheels
+          VLLM_SRC: ${{ runner.temp }}/src/vllm
+          MAXTEXT_SRC: ${{ runner.temp }}/src/maxtext
+        run: |
+          python3 -m venv --system-site-packages venv
+          source venv/bin/activate
+          scripts/install_python_env.sh
+          scripts/build_jax_aiter.sh
+      - name: Show installed versions
+        run: venv/bin/python -m pip freeze
+      - name: Run tests
+        run: |
+          # The ROCm plugin wheels do not bundle ROCm; they load the container's TheRock libraries.
+          root=$(rocm-sdk path --root)
+          export LD_LIBRARY_PATH="$root/lib:$root/lib/rocm_sysdeps/lib"
+          export JA_ROOT_DIR="$GITHUB_WORKSPACE/third_party/jax-aiter"
+          export PYTHONPATH="$JA_ROOT_DIR"
+          DECOUPLE_GCLOUD=TRUE JAX_VLLM_REQUIRE_GPU=1 venv/bin/python -m pytest tests/ -rs

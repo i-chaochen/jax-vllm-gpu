@@ -1,0 +1,81 @@
+diff --git a/src/maxtext/configs/pyconfig_deprecated.py b/src/maxtext/configs/pyconfig_deprecated.py
+index 19c1d7e5a..1855352c2 100644
+--- a/src/maxtext/configs/pyconfig_deprecated.py
++++ b/src/maxtext/configs/pyconfig_deprecated.py
+@@ -107,6 +107,7 @@ def validate_attention_kernel(s: str) -> None:
+       "cudnn_flash_jax",
+       "vllm_rpa",
+       "vllm_batched_rpa",
++      "gpu_paged",
+   )
+   if s not in valid_attention_kernels:  # currently supported attention
+     raise ValueError("Invalid attention kernel was passed. Valid options ", valid_attention_kernels)
+diff --git a/src/maxtext/layers/attentions.py b/src/maxtext/layers/attentions.py
+index 525af7ba3..bfcce116e 100644
+--- a/src/maxtext/layers/attentions.py
++++ b/src/maxtext/layers/attentions.py
+@@ -430,7 +430,7 @@ class Attention(nnx.Module):
+         self.init_kv_caches(inputs_kv_shape=inputs_kv_shape)
+         if self.model_mode != MODEL_MODE_TRAIN
+         and base_kv_cache
+-        and config.attention not in ("vllm_rpa", "vllm_batched_rpa")
++        and config.attention not in ("vllm_rpa", "vllm_batched_rpa", "gpu_paged")
+         else None
+     )
+ 
+@@ -1181,6 +1181,25 @@ class Attention(nnx.Module):
+     )
+     return output, kv_cache
+ 
++  def forward_serve_gpu_paged(
++      self,
++      query: Array,
++      key: Array,
++      value: Array,
++      kv_pools: list[Array] | None = None,
++      metadata: Any = None,
++  ) -> tuple[Array, list[Array]]:
++    """Paged attention for serving, supplied by an external provider.
++
++    A provider replaces this method before the model is built. It writes this
++    step's K/V into `kv_pools` at the slots `metadata` names, attends over the
++    pages, and returns the attention output with the updated pools. With no
++    pools or metadata, which is model initialization, it returns the query.
++    """
++    raise NotImplementedError(
++        "attention='gpu_paged' needs a paged-attention provider bound to Attention.forward_serve_gpu_paged"
++    )
++
+   def __call__(
+       self,
+       inputs_q: Array,
+@@ -1335,6 +1354,14 @@ class Attention(nnx.Module):
+       out = attn_out.reshape(batch, seq_len, num_heads, head_dim)
+       kv_cache = updated_kv
+ 
++    elif self.config.attention == "gpu_paged" and model_mode != MODEL_MODE_TRAIN:
++      batch, seq_len, num_heads, head_dim = query.shape
++      attn_out, updated_kv = self.forward_serve_gpu_paged(
++          query, key, value, kv_pools=kv_cache, metadata=attention_metadata
++      )
++      out = attn_out.reshape(batch, seq_len, num_heads, head_dim)
++      kv_cache = updated_kv
++
+     else:
+       cached_values = [None, None]
+       if model_mode != MODEL_MODE_TRAIN:
+diff --git a/src/maxtext/models/models.py b/src/maxtext/models/models.py
+index f7ee74d1b..15c576880 100644
+--- a/src/maxtext/models/models.py
++++ b/src/maxtext/models/models.py
+@@ -355,4 +355,10 @@ class Transformer(nnx.Module):
+         return hidden_state, kv_caches, expert_indices
+       return hidden_state, kv_caches
+ 
++    if self.config.attention == "gpu_paged" and kv_caches is not None:
++      # The paged pools are donated into the step and come back aliased, so the
++      # updated handles have to leave the model. Model initialization threads no
++      # pools and keeps the single return value.
++      return logits, kv_caches
++
+     return logits
