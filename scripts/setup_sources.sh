@@ -15,7 +15,7 @@ set -euo pipefail
 
 REPO=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
 WORKSPACE=$(dirname "$REPO")
-JAX_VLLM_GPU_ROOT=${JAX_VLLM_GPU_ROOT:-$WORKSPACE/.jax_vllm_gpu}
+JAX_VLLM_GPU_ROOT=${JAX_VLLM_GPU_ROOT:-$WORKSPACE/.vllm_xla_gpu}
 PATCHES=$REPO/third_party/patches
 SRC=$JAX_VLLM_GPU_ROOT/src
 # maxtext-v0.2.5, the release jax-titan uses.

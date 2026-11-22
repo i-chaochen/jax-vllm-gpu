@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 
-from jax_vllm_gpu.plugin.page_table import RequestPages, build_page_table
+from vllm_xla_gpu.plugin.page_table import RequestPages, build_page_table
 
 PAGE = 16
 

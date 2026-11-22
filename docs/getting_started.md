@@ -3,16 +3,16 @@
 vLLM-XLA-GPU runs in the TheRock ROCm container jax-titan uses, on jax-titan's
 JAX build, with a CPU-only torch and vLLM built with no kernels of its own. The
 source trees, the venv and the compilation cache live in `JAX_VLLM_GPU_ROOT`,
-which defaults to `.jax_vllm_gpu` next to this repository.
+which defaults to `.vllm_xla_gpu` next to this repository.
 
 ## 1. Container
 
 On the host:
 
 ```bash
-scripts/container.sh     # starts ${USER}_therock-10.1_jax_vllm_gpu from
+scripts/container.sh     # starts ${USER}_therock-10.1_vllm_xla_gpu from
                          # ghcr.io/rocm/jax-base-ubu24.therock-10.1, at jax-titan's CI digest
-docker exec -it -u ${USER} ${USER}_therock-10.1_jax_vllm_gpu bash
+docker exec -it -u ${USER} ${USER}_therock-10.1_vllm_xla_gpu bash
 ```
 
 The container mounts the repository's parent directory and `/data` at their
@@ -73,7 +73,7 @@ with their checksums.
 ## 4. Python environment
 
 ```bash
-R=../.jax_vllm_gpu
+R=../.vllm_xla_gpu
 python3 -m venv --system-site-packages $R/venv
 source $R/venv/bin/activate
 WHEELS=<the four wheels> VLLM_SRC=$R/src/vllm MAXTEXT_SRC=$R/src/maxtext \

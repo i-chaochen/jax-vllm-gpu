@@ -9,7 +9,7 @@ pytest.importorskip("vllm", reason="vLLM is supplied by the runtime image")
 
 import torch
 
-from jax_vllm_gpu.plugin.kv_spec import (
+from vllm_xla_gpu.plugin.kv_spec import (
     blocks_that_fit,
     build_kv_cache_layer_configs,
     build_layout,

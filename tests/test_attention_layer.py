@@ -1,7 +1,7 @@
 """MaxText's Attention layer, serving through this repository's paged attention.
 
 `models/adapters/maxtext.install()` binds `Attention.forward_serve_gpu_paged`
-to `jax_vllm_gpu.models.adapters.maxtext.forward_serve_gpu_paged`, so these
+to `vllm_xla_gpu.models.adapters.maxtext.forward_serve_gpu_paged`, so these
 tests exercise this repository's implementation inside MaxText's layer: the
 dense-path parity, the kernel arguments of both branches, and the dry run.
 
@@ -38,9 +38,9 @@ from maxtext.configs import pyconfig
 from maxtext.layers.attentions import Attention
 from maxtext.utils import maxtext_utils
 
-from jax_vllm_gpu.kv.common import KvPageTableV1
-from jax_vllm_gpu.models.adapters import maxtext as maxtext_adapter
-from jax_vllm_gpu.ops import paged_attention as gpa
+from vllm_xla_gpu.kv.common import KvPageTableV1
+from vllm_xla_gpu.models.adapters import maxtext as maxtext_adapter
+from vllm_xla_gpu.ops import paged_attention as gpa
 from maxtext_test_config import get_test_config_path
 
 

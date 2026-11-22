@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from jax_vllm_gpu.plugin.profiling import ROCTX_ENV_VAR, Roctx
+from vllm_xla_gpu.plugin.profiling import ROCTX_ENV_VAR, Roctx
 
 
 class FakeFunction:

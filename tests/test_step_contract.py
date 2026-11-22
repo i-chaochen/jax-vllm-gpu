@@ -31,13 +31,13 @@ pytest.importorskip("vllm", reason="vLLM supplies ModelRunnerOutput")
 import jax
 import jax.numpy as jnp
 
-from jax_vllm_gpu.kv.common import KvStorageLayoutV1
-from jax_vllm_gpu.kv.execution.bucketing import StepShapePlanner
-from jax_vllm_gpu.kv.execution.pool_factory import allocate_pool
+from vllm_xla_gpu.kv.common import KvStorageLayoutV1
+from vllm_xla_gpu.kv.execution.bucketing import StepShapePlanner
+from vllm_xla_gpu.kv.execution.pool_factory import allocate_pool
 
-from jax_vllm_gpu.plugin import pool as pool_module
-from jax_vllm_gpu.plugin.kv_reuse import PageReuseTracker
-from jax_vllm_gpu.plugin.model_runner import JaxModelRunner
+from vllm_xla_gpu.plugin import pool as pool_module
+from vllm_xla_gpu.plugin.kv_reuse import PageReuseTracker
+from vllm_xla_gpu.plugin.model_runner import JaxModelRunner
 
 PAGE = 16
 NUM_PAGES = 32
@@ -228,7 +228,7 @@ def test_structured_output_is_refused_rather_than_ignored():
 def test_the_worker_delegates_sampling_rather_than_raising():
     """The original worker raised here, on the theory that the engine would
     never call it. It does."""
-    from jax_vllm_gpu.plugin.worker import JaxWorker
+    from vllm_xla_gpu.plugin.worker import JaxWorker
 
     runner = a_runner()
     worker = JaxWorker.__new__(JaxWorker)

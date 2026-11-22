@@ -24,7 +24,7 @@ import unittest
 
 import numpy as np
 
-from jax_vllm_gpu.kv.common import KvPageTableV1, KvStorageLayoutV1
+from vllm_xla_gpu.kv.common import KvPageTableV1, KvStorageLayoutV1
 
 # Imported by package path, which is cheap: `maxtext/__init__.py` resolves its
 # heavy exports through a lazy `__getattr__`, so reaching a submodule loads

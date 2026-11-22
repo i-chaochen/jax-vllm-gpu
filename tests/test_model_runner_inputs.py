@@ -16,16 +16,16 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from jax_vllm_gpu.kv.execution.bucketing import StepShapePlanner
-from jax_vllm_gpu.plugin.kv_reuse import PageReuseTracker
-from jax_vllm_gpu.plugin.model_runner import (
+from vllm_xla_gpu.kv.execution.bucketing import StepShapePlanner
+from vllm_xla_gpu.plugin.kv_reuse import PageReuseTracker
+from vllm_xla_gpu.plugin.model_runner import (
     _attention_max_seqlen_q,
     _next_rng,
     _pad,
     _prepared_model_inputs,
 )
-from jax_vllm_gpu.plugin.page_table import RequestPages
-from jax_vllm_gpu.plugin.step import prepare_step
+from vllm_xla_gpu.plugin.page_table import RequestPages
+from vllm_xla_gpu.plugin.step import prepare_step
 
 PAGE = 16
 POOL = 64

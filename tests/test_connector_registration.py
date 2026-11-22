@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from jax_vllm_gpu.plugin.connector import CONNECTOR_NAME, register
+from vllm_xla_gpu.plugin.connector import CONNECTOR_NAME, register
 
 pytest.importorskip("vllm", reason="vLLM is supplied by the runtime image")
 

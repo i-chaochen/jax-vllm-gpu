@@ -46,11 +46,11 @@ from maxtext.common.common_types import MODEL_MODE_PREFILL, MODEL_MODE_TRAIN
 from maxtext.configs import pyconfig
 from maxtext.utils import maxtext_utils, model_creation_utils
 
-from jax_vllm_gpu.engine.config import PagedConfig
+from vllm_xla_gpu.engine.config import PagedConfig
 
 try:
   from maxtext.inference.maxengine import maxengine
-  from jax_vllm_gpu.engine.paged_engine import PagedEngine
+  from vllm_xla_gpu.engine.paged_engine import PagedEngine
 except ModuleNotFoundError as _exc:  # pragma: no cover - environment dependent
   # `maxengine` reaches JetStream for its engine base class and tokenizer types.
   # Naming both remedies matters: installing google-jetstream pulls TensorFlow and
@@ -409,7 +409,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
     impossible -- so it is worth checking rather than assuming.
     """
     # pylint: disable=import-outside-toplevel
-    from jax_vllm_gpu.kv.execution.driver import PagedDriver, PagedRequest
+    from vllm_xla_gpu.kv.execution.driver import PagedDriver, PagedRequest
 
     cfg = _config(**_PAGED)
     params_state = self._build_params(cfg)
@@ -460,7 +460,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
     reference that distinguishes "packed correctly" from "packed consistently".
     """
     # pylint: disable=import-outside-toplevel
-    from jax_vllm_gpu.kv.execution.step_inputs import RequestSlice, build_step_inputs
+    from vllm_xla_gpu.kv.execution.step_inputs import RequestSlice, build_step_inputs
 
     cfg = _config(**_PAGED)
     params_state = self._build_params(cfg)
@@ -539,7 +539,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
     # pylint: disable=import-outside-toplevel
     import jax.numpy as jnp
 
-    from jax_vllm_gpu.engine.offline import InputData, PagedInferenceWorker
+    from vllm_xla_gpu.engine.offline import InputData, PagedInferenceWorker
 
     prompts = [list(range(3, 15)), list(range(40, 48)), list(range(90, 106))]
     cfg = _config(**_PAGED, return_log_prob=True)

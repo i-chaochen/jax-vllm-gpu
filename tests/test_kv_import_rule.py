@@ -42,8 +42,8 @@ import subprocess
 import sys
 import unittest
 
-_KV_DIR = pathlib.Path(__file__).resolve().parents[1] / "src" / "jax_vllm_gpu" / "kv"
-_PACKAGE = "jax_vllm_gpu"
+_KV_DIR = pathlib.Path(__file__).resolve().parents[1] / "src" / "vllm_xla_gpu" / "kv"
+_PACKAGE = "vllm_xla_gpu"
 
 # A package importing any of these has broken the rule outright, and saying so
 # by name gives a better failure than "unexpected import".
@@ -85,12 +85,12 @@ class _Layer:
     return any(_within(module, prefix) for prefix in self.allowed_internal)
 
 
-_KV_COMMON = "jax_vllm_gpu.kv.common"
-_KV_CONTROL = "jax_vllm_gpu.kv.control"
+_KV_COMMON = "vllm_xla_gpu.kv.common"
+_KV_CONTROL = "vllm_xla_gpu.kv.control"
 # Deliberately not a checked layer: `kv.execution` is where jax, model config
 # and the kernel provider legitimately live. What matters is that nothing below
 # it imports it, which the test below asserts.
-_KV_EXECUTION = "jax_vllm_gpu.kv.execution"
+_KV_EXECUTION = "vllm_xla_gpu.kv.execution"
 
 LAYERS = (
     _Layer(package=_KV_COMMON, allowed_internal=frozenset({_KV_COMMON})),
@@ -190,7 +190,7 @@ class ImportRuleTest(unittest.TestCase):
     nothing.
     """
     code = (
-        "import sys, jax_vllm_gpu.kv.control, jax_vllm_gpu.kv.common;"
+        "import sys, vllm_xla_gpu.kv.control, vllm_xla_gpu.kv.common;"
         "print(sorted({m.split('.')[0] for m in sys.modules} & "
         "{'jax', 'jaxlib', 'flax', 'torch', 'tensorflow', 'maxtext', 'vllm'}))"
     )

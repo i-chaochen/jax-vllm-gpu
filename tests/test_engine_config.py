@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from jax_vllm_gpu.engine.config import PagedConfig
+from vllm_xla_gpu.engine.config import PagedConfig
 
 
 def a_model(**overrides):

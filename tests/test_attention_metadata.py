@@ -12,10 +12,10 @@ import numpy as np
 import pytest
 
 
-from jax_vllm_gpu.ops.paged_attention import is_vllm_metadata
+from vllm_xla_gpu.ops.paged_attention import is_vllm_metadata
 
-from jax_vllm_gpu.plugin.attention_metadata import build_attention_metadata
-from jax_vllm_gpu.plugin.page_table import RequestPages, build_page_table
+from vllm_xla_gpu.plugin.attention_metadata import build_attention_metadata
+from vllm_xla_gpu.plugin.page_table import RequestPages, build_page_table
 
 PAGE = 16
 
@@ -91,7 +91,7 @@ def test_the_two_conversion_routes_agree_on_slot_mapping():
     table = table_for(requests)
     md = build_attention_metadata(table)
 
-    from jax_vllm_gpu.ops.paged_attention import plan_from_neutral, plan_from_vllm
+    from vllm_xla_gpu.ops.paged_attention import plan_from_neutral, plan_from_vllm
 
     with jax.default_device(jax.devices("cpu")[0]):
         neutral = plan_from_neutral(table, PAGE)
@@ -139,7 +139,7 @@ def test_the_vllm_route_leaves_trailing_padding_in_kv_page_indices():
     table = table_for(requests)
     md = build_attention_metadata(table)
 
-    from jax_vllm_gpu.ops.paged_attention import plan_from_neutral, plan_from_vllm
+    from vllm_xla_gpu.ops.paged_attention import plan_from_neutral, plan_from_vllm
 
     with jax.default_device(jax.devices("cpu")[0]):
         neutral = plan_from_neutral(table, PAGE)

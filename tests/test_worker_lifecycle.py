@@ -11,7 +11,7 @@ import pytest
 
 pytest.importorskip("vllm", reason="vLLM is supplied by the runtime image")
 
-from jax_vllm_gpu.plugin.worker import JaxWorker
+from vllm_xla_gpu.plugin.worker import JaxWorker
 
 
 def test_distributed_init_restores_config_and_removes_rendezvous_on_error(monkeypatch):

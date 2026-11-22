@@ -1,6 +1,6 @@
 # Source inside the TheRock container: `source scripts/env.sh`.
 JAX_VLLM_GPU_REPO=${JAX_VLLM_GPU_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
-export JAX_VLLM_GPU_ROOT=${JAX_VLLM_GPU_ROOT:-$(dirname "${JAX_VLLM_GPU_REPO}")/.jax_vllm_gpu}
+export JAX_VLLM_GPU_ROOT=${JAX_VLLM_GPU_ROOT:-$(dirname "${JAX_VLLM_GPU_REPO}")/.vllm_xla_gpu}
 
 source "${JAX_VLLM_GPU_ROOT}/venv/bin/activate"
 

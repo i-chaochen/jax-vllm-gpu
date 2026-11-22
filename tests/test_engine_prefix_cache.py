@@ -49,13 +49,13 @@ from flax.linen import partitioning as nn_partitioning
 
 from maxtext.common.common_types import MODEL_MODE_PREFILL
 from maxtext.configs import pyconfig
-from jax_vllm_gpu.engine.config import PagedConfig
-from jax_vllm_gpu.kv.common import CacheNamespace
+from vllm_xla_gpu.engine.config import PagedConfig
+from vllm_xla_gpu.kv.common import CacheNamespace
 from maxtext.utils import maxtext_utils, model_creation_utils
 
 try:
   from maxtext.inference.maxengine import maxengine
-  from jax_vllm_gpu.engine.paged_engine import PagedEngine
+  from vllm_xla_gpu.engine.paged_engine import PagedEngine
 except ModuleNotFoundError as _exc:  # pragma: no cover - environment dependent
   pytest.skip(
       f"MaxEngine needs JetStream ({_exc}). Install google-jetstream under a constraints file pinning "

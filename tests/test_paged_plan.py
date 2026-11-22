@@ -8,12 +8,12 @@ import pytest
 
 pytest.importorskip("jax", reason="PagedPlan holds device arrays")
 
-from jax_vllm_gpu.kv.common import KvPageTableV1
-from jax_vllm_gpu.kv.execution.bucketing import StepShape
-from jax_vllm_gpu.kv.execution.step_view import build_step_view
-from jax_vllm_gpu.ops.paged_attention import PagedPlan, build_plan
+from vllm_xla_gpu.kv.common import KvPageTableV1
+from vllm_xla_gpu.kv.execution.bucketing import StepShape
+from vllm_xla_gpu.kv.execution.step_view import build_step_view
+from vllm_xla_gpu.ops.paged_attention import PagedPlan, build_plan
 
-from jax_vllm_gpu.plugin import paged_plan
+from vllm_xla_gpu.plugin import paged_plan
 
 
 def a_step_view(tokens_per_page=16):

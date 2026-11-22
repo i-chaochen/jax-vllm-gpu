@@ -17,7 +17,7 @@ pytest.importorskip("maxtext", reason="MaxText is supplied by a pinned checkout"
 
 from maxtext.layers import attentions
 
-from jax_vllm_gpu.models.adapters import maxtext
+from vllm_xla_gpu.models.adapters import maxtext
 
 
 def test_install_binds_this_repositorys_implementation():
@@ -43,11 +43,11 @@ def test_install_refuses_a_maxtext_without_the_hook(monkeypatch):
 
 def test_registering_maxtext_serves_this_adapter_without_tpu_inference():
     pytest.importorskip("vllm", reason="vLLM is supplied by the runtime image")
-    from jax_vllm_gpu.plugin import registry
+    from vllm_xla_gpu.plugin import registry
 
     registry.register_maxtext()
 
     model_cls = registry.get_model_cls("MaxTextForCausalLM")
-    assert model_cls.__module__ == "jax_vllm_gpu.models.adapters.maxtext_vllm"
+    assert model_cls.__module__ == "vllm_xla_gpu.models.adapters.maxtext_vllm"
     assert maxtext.installed()
     assert "tpu_inference" not in sys.modules

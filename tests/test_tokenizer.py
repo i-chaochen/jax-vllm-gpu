@@ -34,7 +34,7 @@ import unittest
 
 import numpy as np
 
-from jax_vllm_gpu.engine import tokenizer as hf_tokenizer
+from vllm_xla_gpu.engine import tokenizer as hf_tokenizer
 
 
 def _tiny_tokenizer_json() -> dict:
@@ -152,7 +152,7 @@ class HfTokenizerTest(unittest.TestCase):
         "import sys, json, os, tempfile\n"
         "sys.path.insert(0, os.environ['PACKAGE_SRC'])\n"
         f"d = {self.dir!r}\n"
-        "from jax_vllm_gpu.engine import tokenizer as hf_tokenizer\n"
+        "from vllm_xla_gpu.engine import tokenizer as hf_tokenizer\n"
         "t = hf_tokenizer.build_tokenizer(d)\n"
         "assert t.encode('hello world') == [0, 1]\n"
         "assert t.decode([0, 1])\n"

@@ -62,32 +62,30 @@ tpu-inference's last-known-good, recorded in `vllm_lkg.version`.
 
 | what | value |
 |---|---|
-| repository | `vllm-xla-gpu` |
-| distribution | `jax-vllm-gpu` |
-| import package | `jax_vllm_gpu` |
-| platform entry point | `jax_vllm_gpu` |
-| connector entry point | `jax_vllm_gpu_kv_connector` |
+| repository and distribution | `vllm-xla-gpu` |
+| import package | `vllm_xla_gpu` |
+| platform entry point | `vllm_xla_gpu` |
+| connector entry point | `vllm_xla_gpu_kv_connector` |
 
 The entry point names are what `VLLM_PLUGINS` allowlists, and the platform one
-appears in vLLM's `Platform plugin jax_vllm_gpu is activated` log line.
+appears in vLLM's `Platform plugin vllm_xla_gpu is activated` log line.
 
-The repository was renamed from `jax-vllm-gpu`, and the old URL redirects. The
-distribution, the import package, the entry points and the `JAX_VLLM_*`
-variables keep the old name for now, so installs and allowlists keep working.
-They take the name `vllm_xla_gpu`, with the old names kept as aliases, once
-the native XLA executor in the roadmap is in place.
+The project was called `jax-vllm-gpu` before, and the old repository URL
+redirects. An environment that still has the `jax-vllm-gpu` distribution
+installed must drop it first, with `pip uninstall jax-vllm-gpu`: vLLM refuses
+to start when two platform plugins are active.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
-| `src/jax_vllm_gpu/kv/common` | Neutral vocabulary: page table, storage layout and cache namespace. Standard library and numpy only |
-| `src/jax_vllm_gpu/kv/control` | The native engine's page allocator, page map, prefix index and residency. Standard library, numpy and `kv/common` only |
-| `src/jax_vllm_gpu/kv/execution` | The device side: pool allocation and sharding, step views and inputs, shape buckets, the continuous-batching driver, page staging and the host tier |
-| `src/jax_vllm_gpu/ops` | Paged attention and KV append through JAX-AITER, under `shard_map` for tensor parallelism |
-| `src/jax_vllm_gpu/models/adapters` | MaxText: the attention hook and the vLLM model |
-| `src/jax_vllm_gpu/engine` | The native offline engine (`PagedEngine`, `PagedInferenceWorker`), its pool settings (`PagedConfig`) and a torch-free tokenizer |
-| `src/jax_vllm_gpu/plugin` | The vLLM platform plugin: platform, worker, model runner, step pipeline, KV spec and pool, page-table translation, recycled-page tracking and connector registration |
+| `src/vllm_xla_gpu/kv/common` | Neutral vocabulary: page table, storage layout and cache namespace. Standard library and numpy only |
+| `src/vllm_xla_gpu/kv/control` | The native engine's page allocator, page map, prefix index and residency. Standard library, numpy and `kv/common` only |
+| `src/vllm_xla_gpu/kv/execution` | The device side: pool allocation and sharding, step views and inputs, shape buckets, the continuous-batching driver, page staging and the host tier |
+| `src/vllm_xla_gpu/ops` | Paged attention and KV append through JAX-AITER, under `shard_map` for tensor parallelism |
+| `src/vllm_xla_gpu/models/adapters` | MaxText: the attention hook and the vLLM model |
+| `src/vllm_xla_gpu/engine` | The native offline engine (`PagedEngine`, `PagedInferenceWorker`), its pool settings (`PagedConfig`) and a torch-free tokenizer |
+| `src/vllm_xla_gpu/plugin` | The vLLM platform plugin: platform, worker, model runner, step pipeline, KV spec and pool, page-table translation, recycled-page tracking and connector registration |
 | `tests/` | CPU and GPU tests. `gpu_only` tests skip when JAX sees no GPU |
 | `tools/` | Smoke runs through vLLM's real engine, and the latency benchmark |
 | `benchmarks/` | Native-engine serving and prefix-cache benchmarks |

@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip("vllm", reason="vLLM is supplied by the runtime image")
 
-from jax_vllm_gpu.plugin.platform import DEFAULT_TOKENS_PER_PAGE, JaxPlatform
+from vllm_xla_gpu.plugin.platform import DEFAULT_TOKENS_PER_PAGE, JaxPlatform
 
 
 def make_config(**kwargs):
@@ -45,7 +45,7 @@ def test_the_worker_class_is_named():
     config = make_config()
     JaxPlatform.check_and_update_config(config)
 
-    assert config.parallel_config.worker_cls == "jax_vllm_gpu.plugin.worker.JaxWorker"
+    assert config.parallel_config.worker_cls == "vllm_xla_gpu.plugin.worker.JaxWorker"
 
 
 def test_a_single_pipeline_stage_uses_the_uniproc_executor():
