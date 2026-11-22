@@ -39,7 +39,7 @@ The tested set, 2026-11-19:
 | jax, jaxlib | 0.12.1.dev0, jax-titan's build of jax `6b39d495e5` and XLA `d23c30982a` |
 | jax-rocm10-plugin, jax-rocm10-pjrt | the same build, for gfx942 |
 | MaxText | `maxtext-v0.2.5` (`493d59281`) with the hook patch |
-| JAX-AITER | `third_party/jax-aiter` at `c290cdd`, jax-titan's pin, with `third_party/patches/jax-aiter-append-kv-scratch.patch` |
+| JAX-AITER | `third_party/jax-aiter` at `c290cdd`, jax-titan's pin, with `third_party/patches/jax-aiter-int32-slots.patch` |
 | vLLM | `5ec99956ad` (`vllm_lkg.version`, tpu-inference's last-known-good), built with `VLLM_TARGET_DEVICE=empty` |
 | torch | 2.14.0, CPU build |
 | Everything else | `.github/ci-constraints.txt` |
@@ -194,10 +194,16 @@ Two things this stack does differently cost 14 to 24% per step until fixed:
   look up one decode token. The platform sets MaxText's `use_iota_embed`,
   whose one-hot lookup partitions locally. A native-engine caller at TP above
   1 should set it too.
-- JAX-AITER's KV append allocated with `hipMallocAsync`, which blocks the host
-  until the stream drains, once per layer.
-  `third_party/patches/jax-aiter-append-kv-scratch.patch` uses XLA's scratch
-  allocator instead.
+- JAX-AITER's KV append widened int32 slots into a buffer from
+  `hipMallocAsync`, which blocks the host until the stream drains, once per
+  layer. The widening worked around an AITER pin that read slots as int64;
+  the pinned AITER reads int32 itself.
+  `third_party/patches/jax-aiter-int32-slots.patch` passes the slots straight
+  through, as proposed upstream.
+
+The table was measured with an earlier fix that kept the widening and took
+its buffer from XLA's scratch allocator. At TP=4 on 2026-11-22, batch 1, the
+two match: 29.6 and 29.3 ms per step, against 34.7 ms with `hipMallocAsync`.
 
 Repeated runs vary by up to 10%, so compare within a session.
 

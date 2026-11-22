@@ -1,0 +1,156 @@
+From 662f572dcdd7286b3990bcdbf0f0a248c60e2500 Mon Sep 17 00:00:00 2001
+From: Chao Chen <cchen104@amd.com>
+Date: Sun, 22 Nov 2026 17:16:54 +0000
+Subject: [PATCH] fix(kv): pass int32 slot_mapping straight through to aiter
+ again
+
+#31 made AppendKvJA widen an int32 slot_mapping into an int64 buffer
+before calling reshape_and_cache_flash. That was right for the aiter
+pinned at the time, 3135022, which loaded slot_mapping as int64_t*
+whatever the descriptor said. aiter has read the width off the
+descriptor's dtype since ROCm/aiter#4697, and the pin has included that
+since 87fb417. The current pin, a3158e4, takes int32 or int64 in both
+reshape_and_cache and reshape_and_cache_flash.
+
+The widening now only costs time. Its buffer came from hipMallocAsync and
+went back with hipFreeAsync, and on ROCm both block the host until the
+stream drains. AppendKvJA runs once per layer, so the host could never get
+ahead of the GPU. It also launched one extra kernel per layer.
+
+This restores #27's pass-through: the int32 descriptor goes to aiter as
+it is, and int64 callers are unaffected.
+
+Measured on Llama-3.3-70B at TP=4 on MI325X, through vLLM with
+jax-vllm-gpu (jax 0.12.1), batch 1, 130-token prompt:
+
+                                     main     this change
+  host time to dispatch a step     28.5 ms       9.7 ms
+  decode step                      34.7 ms      29.3 ms
+  first token                      51.6 ms      40.9 ms
+
+tests/test_append_kv_ja.py, tests/test_kv_aliasing_ja.py and
+tests/test_kv_bridge_ja.py: 38 passed, 1 skipped (memory_stats() is None
+on this JAX/ROCm). They use int32 slots throughout and check int64
+against int32.
+---
+ csrc/ffi/kv/aiter_interop.h |  4 +--
+ csrc/ffi/kv/append_kv_ja.cu | 66 +++++--------------------------------
+ 2 files changed, 11 insertions(+), 59 deletions(-)
+
+diff --git a/csrc/ffi/kv/aiter_interop.h b/csrc/ffi/kv/aiter_interop.h
+index 463fb18..386467e 100644
+--- a/csrc/ffi/kv/aiter_interop.h
++++ b/csrc/ffi/kv/aiter_interop.h
+@@ -17,8 +17,8 @@
+ //     buffer dimensions rather than assumed, because the packed pool layouts are
+ //     stride-driven and a wrong stride is silent.
+ //
+-// The descriptor carries dtype, but reshape_and_cache_flash still reads
+-// slot_mapping as int64_t*. AppendKvJA widens int32 slots before that call.
++// The descriptor also carries the dtype, which is how index buffers such as
++// slot_mapping reach aiter as int32 without a widening pass.
+ 
+ #pragma once
+ 
+diff --git a/csrc/ffi/kv/append_kv_ja.cu b/csrc/ffi/kv/append_kv_ja.cu
+index c9cb348..6125482 100644
+--- a/csrc/ffi/kv/append_kv_ja.cu
++++ b/csrc/ffi/kv/append_kv_ja.cu
+@@ -36,13 +36,6 @@ namespace ffi = xla::ffi;
+ 
+ namespace jax_aiter {
+ 
+-__global__ void WidenI32ToI64(const int32_t *in, int64_t *out, int64_t n) {
+-  const int64_t i = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+-  if (i < n) {
+-    out[i] = static_cast<int64_t>(in[i]);
+-  }
+-}
+-
+ ffi::Error AppendKv_Bridge(hipStream_t stream, int32_t device_ordinal,
+                            ffi::AnyBuffer k_new, ffi::AnyBuffer v_new,
+                            ffi::AnyBuffer slot_mapping, ffi::AnyBuffer k_scale,
+@@ -83,11 +76,9 @@ ffi::Error AppendKv_Bridge(hipStream_t stream, int32_t device_ordinal,
+                       "AppendKvJA: k_new and k_pool dtype must match "
+                       "(quantised pools are out of scope at M1)");
+   }
+-  // int32 is what the control plane and JAX (without x64) produce; int64 is
+-  // accepted so a caller sharing vLLM-shaped metadata needs no conversion.
+-  // aiter::reshape_and_cache_flash always loads slot_mapping as int64_t*, so
+-  // int32 inputs are widened on device below. Passing int32 through as-is
+-  // reads adjacent slots as one index and aborts the GPU.
++  // int32 is what the control plane produces and what JAX emits without x64;
++  // int64 is accepted too so a caller sharing vLLM-shaped metadata needs no
++  // conversion. aiter picks the width off the descriptor dtype either way.
+   if (slot_mapping.element_type() != ffi::DataType::S32 &&
+       slot_mapping.element_type() != ffi::DataType::S64) {
+     return ffi::Error(ffi::ErrorCode::kInvalidArgument,
+@@ -135,49 +126,13 @@ ffi::Error AppendKv_Bridge(hipStream_t stream, int32_t device_ordinal,
+       e.failure())
+     return e;
+ 
+-  int64_t *slots_i64 = nullptr;
+-  if (slot_mapping.element_type() == ffi::DataType::S32) {
+-    hipError_t merr = hipMallocAsync(
+-        reinterpret_cast<void **>(&slots_i64),
+-        sizeof(int64_t) * static_cast<size_t>(num_tokens), stream);
+-    if (merr != hipSuccess) {
+-      return ffi::Error(ffi::ErrorCode::kInternal,
+-                        std::string("AppendKvJA: hipMallocAsync for int64 slots: ") +
+-                            hipGetErrorString(merr));
+-    }
+-    const int threads = 256;
+-    const int blocks =
+-        static_cast<int>((num_tokens + threads - 1) / threads);
+-    WidenI32ToI64<<<blocks, threads, 0, stream>>>(
+-        static_cast<const int32_t *>(slot_mapping.untyped_data()), slots_i64,
+-        num_tokens);
+-    hipError_t werr = hipGetLastError();
+-    if (werr != hipSuccess) {
+-      hipFreeAsync(slots_i64, stream);
+-      return ffi::Error(ffi::ErrorCode::kInternal,
+-                        std::string("AppendKvJA: int32->int64 widen launch: ") +
+-                            hipGetErrorString(werr));
+-    }
+-    if (auto e = MakeAiterTensor(slots_i64, slot_mapping.dimensions(),
+-                                 ffi::DataType::S64, device_id, &t_slots,
+-                                 "slot_mapping");
+-        e.failure()) {
+-      hipFreeAsync(slots_i64, stream);
+-      return e;
+-    }
+-  } else if (auto e =
+-                 MakeAiterTensor(slot_mapping, device_id, &t_slots, "slot_mapping");
+-             e.failure()) {
+-    return e;
+-  }
+-  if (auto e = MakeAiterTensor(k_scale, device_id, &t_kscale, "k_scale"); e.failure()) {
+-    if (slots_i64) hipFreeAsync(slots_i64, stream);
+-    return e;
+-  }
+-  if (auto e = MakeAiterTensor(v_scale, device_id, &t_vscale, "v_scale"); e.failure()) {
+-    if (slots_i64) hipFreeAsync(slots_i64, stream);
++  // Passed straight through as int32: aiter derives the index width from the
++  // descriptor's dtype, so no widening pass is needed.
++  if (auto e = MakeAiterTensor(slot_mapping, device_id, &t_slots, "slot_mapping");
++      e.failure())
+     return e;
+-  }
++  if (auto e = MakeAiterTensor(k_scale, device_id, &t_kscale, "k_scale"); e.failure()) return e;
++  if (auto e = MakeAiterTensor(v_scale, device_id, &t_vscale, "v_scale"); e.failure()) return e;
+ 
+   // aiter reads its stream from thread-local state, so install XLA's for the
+   // duration of the call or the write races the surrounding graph.
+@@ -188,9 +143,6 @@ ffi::Error AppendKv_Bridge(hipStream_t stream, int32_t device_ordinal,
+                                  t_slots, dtype_str, t_kscale, t_vscale);
+ 
+   hipError_t err = hipGetLastError();
+-  if (slots_i64) {
+-    hipFreeAsync(slots_i64, stream);
+-  }
+   if (err != hipSuccess) {
+     return ffi::Error(ffi::ErrorCode::kInternal,
+                       std::string("AppendKvJA: reshape_and_cache_flash failed: ") +
+-- 
+2.43.0
+
