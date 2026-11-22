@@ -2,10 +2,10 @@
 
 JAX inference on GPUs, served through vLLM, built AMD-native first.
 
-vLLM-XLA-GPU, formerly jax-vllm-gpu, runs MaxText models on AMD Instinct GPUs
-with a paged KV cache. KV lives in donated `jax.Array` page pools, and AITER's
-paged kernels, reached through JAX-AITER's XLA FFI, append to them and attend
-over them. The same runtime serves models two ways:
+vLLM-XLA-GPU runs MaxText models on AMD Instinct GPUs with a paged KV cache.
+KV lives in donated `jax.Array` page pools, and AITER's paged kernels, reached
+through JAX-AITER's XLA FFI, append to them and attend over them. The same
+runtime serves models two ways:
 
 - through **vLLM**, as an out-of-tree platform plugin. vLLM supplies the
   OpenAI-compatible endpoint, the scheduler and the block manager; this package
@@ -69,11 +69,6 @@ tpu-inference's last-known-good, recorded in `vllm_lkg.version`.
 
 The entry point names are what `VLLM_PLUGINS` allowlists, and the platform one
 appears in vLLM's `Platform plugin vllm_xla_gpu is activated` log line.
-
-The project was called `jax-vllm-gpu` before, and the old repository URL
-redirects. An environment that still has the `jax-vllm-gpu` distribution
-installed must drop it first, with `pip uninstall jax-vllm-gpu`: vLLM refuses
-to start when two platform plugins are active.
 
 ## Layout
 

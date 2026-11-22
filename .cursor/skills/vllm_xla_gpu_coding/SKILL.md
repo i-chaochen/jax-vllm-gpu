@@ -1,12 +1,12 @@
 ---
 name: vllm_xla_gpu_coding
 description: >-
-  Architecture rules, coding standards and test discipline for vLLM-XLA-GPU
-  (formerly jax-vllm-gpu), JAX inference on AMD GPUs with a paged KV cache,
-  served through a vLLM platform plugin or a standalone offline engine, with
-  MaxText as the model provider. Use when writing, reviewing or changing code
-  in the vllm-xla-gpu repo: the KV runtime, the paged-attention kernels, the
-  MaxText adapters, the engine, the vLLM plugin, tests and docs.
+  Architecture rules, coding standards and test discipline for vLLM-XLA-GPU,
+  JAX inference on AMD GPUs with a paged KV cache, served through a vLLM
+  platform plugin or a standalone offline engine, with MaxText as the model
+  provider. Use when writing, reviewing or changing code in the vllm-xla-gpu
+  repo: the KV runtime, the paged-attention kernels, the MaxText adapters, the
+  engine, the vLLM plugin, tests and docs.
 ---
 
 # vLLM-XLA-GPU Coding Guide
