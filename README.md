@@ -1,11 +1,11 @@
-# jax-vllm-gpu
+# vLLM-XLA-GPU
 
 JAX inference on GPUs, served through vLLM, built AMD-native first.
 
-jax-vllm-gpu runs MaxText models on AMD Instinct GPUs with a paged KV cache.
-KV lives in donated `jax.Array` page pools, and AITER's paged kernels, reached
-through JAX-AITER's XLA FFI, append to them and attend over them. The same
-runtime serves models two ways:
+vLLM-XLA-GPU, formerly jax-vllm-gpu, runs MaxText models on AMD Instinct GPUs
+with a paged KV cache. KV lives in donated `jax.Array` page pools, and AITER's
+paged kernels, reached through JAX-AITER's XLA FFI, append to them and attend
+over them. The same runtime serves models two ways:
 
 - through **vLLM**, as an out-of-tree platform plugin. vLLM supplies the
   OpenAI-compatible endpoint, the scheduler and the block manager; this package
@@ -62,13 +62,20 @@ tpu-inference's last-known-good, recorded in `vllm_lkg.version`.
 
 | what | value |
 |---|---|
-| repository and distribution | `jax-vllm-gpu` |
+| repository | `vllm-xla-gpu` |
+| distribution | `jax-vllm-gpu` |
 | import package | `jax_vllm_gpu` |
 | platform entry point | `jax_vllm_gpu` |
 | connector entry point | `jax_vllm_gpu_kv_connector` |
 
 The entry point names are what `VLLM_PLUGINS` allowlists, and the platform one
 appears in vLLM's `Platform plugin jax_vllm_gpu is activated` log line.
+
+The repository was renamed from `jax-vllm-gpu`, and the old URL redirects. The
+distribution, the import package, the entry points and the `JAX_VLLM_*`
+variables keep the old name for now, so installs and allowlists keep working.
+They take the name `vllm_xla_gpu`, with the old names kept as aliases, once
+the native XLA executor in the roadmap is in place.
 
 ## Layout
 
@@ -104,6 +111,9 @@ the tests and the smoke runs.
 
 ## Roadmap
 
+- A native XLA executor: the step functions the JAX runner compiles today,
+  exported once and run by a C++ runtime that keeps the KV pool on the GPU,
+  with no JAX in the serving worker. The project is named for it.
 - Propose the hook to MaxText as a vendor-neutral external paged-attention
   provider, and drop the patch once a release carries it. Send the KV-append
   fix to JAX-AITER, and report the embedding all-gather to XLA.

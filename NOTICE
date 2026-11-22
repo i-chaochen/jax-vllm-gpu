@@ -1,4 +1,4 @@
-jax-vllm-gpu
+vLLM-XLA-GPU
 Copyright 2026 Advanced Micro Devices, Inc.
 
 This product includes software derived from MaxText

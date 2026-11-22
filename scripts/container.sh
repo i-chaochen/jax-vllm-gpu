@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Starts the jax-vllm-gpu development container with all GPUs: TheRock 10.1, the
+# Starts the vLLM-XLA-GPU development container with all GPUs: TheRock 10.1, the
 # image jax-titan's CI runs. Adds a user matching the host uid, so files written
 # to the workspace keep the host owner. Run on the host.
 set -euo pipefail
