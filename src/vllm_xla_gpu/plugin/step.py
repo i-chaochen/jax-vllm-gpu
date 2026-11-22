@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """The per-step pipeline, in the order the recycled-page guarantee requires.
 
-MaxText's native runtime fixes this order in `PagedRuntime.prepare_step`:
+The standalone runtime fixes this order in `PagedRuntime.prepare_step`:
 reserve, scrub, confirm, build, run. Under vLLM the reserve step belongs to
 vLLM, but the rest of the order still has to hold, and it is the *order* that
 carries the guarantee rather than any single call.

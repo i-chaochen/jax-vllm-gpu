@@ -3,7 +3,7 @@ name: vllm_xla_gpu_coding
 description: >-
   Architecture rules, coding standards and test discipline for vLLM-XLA-GPU
   (formerly jax-vllm-gpu), JAX inference on AMD GPUs with a paged KV cache,
-  served through a vLLM platform plugin or a native offline engine, with
+  served through a vLLM platform plugin or a standalone offline engine, with
   MaxText as the model provider. Use when writing, reviewing or changing code
   in the vllm-xla-gpu repo: the KV runtime, the paged-attention kernels, the
   MaxText adapters, the engine, the vLLM plugin, tests and docs.
@@ -27,7 +27,7 @@ patched either: the plugin is found through the `vllm.platform_plugins` and
   side and is the lowest layer that may import jax or a kernel provider.
   `tests/test_kv_import_rule.py` enforces this. Never import jax, jax_aiter,
   maxtext or vllm below `kv/execution`.
-- **One page owner per mode:** the native engine owns pages through
+- **One page owner per mode:** the standalone engine owns pages through
   `kv/control`'s allocator and prefix index. Under the vLLM plugin, vLLM's
   `KVCacheManager` owns them, and `plugin/` never imports `kv/control`
   (`tests/test_ownership_mode.py`).
@@ -37,9 +37,9 @@ patched either: the plugin is found through the `vllm.platform_plugins` and
   release. `models/adapters/maxtext.install()` binds it to this repository's
   implementation and raises if MaxText has no such hook. Bind before building
   a model; `PagedEngine` and `plugin.registry.register_maxtext` do.
-- **Pool settings:** the native engine's page size, block count and context
-  limit are `engine/config.PagedConfig`'s, never MaxText config keys, which
-  MaxText's config refuses. Under the plugin the pool is vLLM's.
+- **Pool settings:** the standalone engine's page size, block count and
+  context limit are `engine/config.PagedConfig`'s, never MaxText config keys,
+  which MaxText's config refuses. Under the plugin the pool is vLLM's.
 - **Metadata:** whatever reaches the model as attention metadata is a
   registered pytree with its sizes static, because MaxText hands it to each
   layer through `jax.checkpoint`.

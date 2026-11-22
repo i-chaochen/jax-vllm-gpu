@@ -37,7 +37,7 @@ FORCE_ENV_VAR = "VXG_PLATFORM"
 _AMD_KFD_DEVICE = "/dev/kfd"
 
 # One of the two page sizes the aiter paged kernels accept (16 or 32), and the
-# native engine's default.
+# standalone engine's default.
 DEFAULT_TOKENS_PER_PAGE = 16
 
 # MaxText's attention mode for the AMD paged path. Its `forward_serve_gpu_paged`

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Recycled-page tracking against vLLM's block lifecycle.
 
-MaxText's native runtime gets this from its own allocator: a page is marked
+The standalone runtime gets this from its own allocator: a page is marked
 dirty when freed, and a page table naming a dirty page is refused until the page
 has been zeroed. Under vLLM the allocator is gone, so the obligation has to be
 reconstructed from what a step actually tells us.

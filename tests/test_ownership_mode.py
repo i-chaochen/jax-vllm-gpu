@@ -22,7 +22,7 @@ import pytest
 
 import vllm_xla_gpu.plugin
 
-# The page-ownership half of the native control plane. `kv_execution` is
+# The page-ownership half of the standalone control plane. `kv_execution` is
 # deliberately not here: its pool factory, bucketing, step view and pool ops are
 # frontend-agnostic and this platform is a legitimate user of all of them. It is
 # specifically the allocator and the prefix index that vLLM replaces.
@@ -68,7 +68,7 @@ def test_no_plugin_module_reaches_maxtexts_own_allocator(path):
 
     assert not offending, (
         f"{path.name} imports {offending}. Under EXTERNAL_VLLM vLLM's "
-        "KVCacheManager is the sole page owner; the native allocator and prefix "
+        "KVCacheManager is the sole page owner; the standalone allocator and prefix "
         "index are bypassed, not merely unused."
     )
 

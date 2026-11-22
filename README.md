@@ -10,8 +10,8 @@ over them. The same runtime serves models two ways:
 - through **vLLM**, as an out-of-tree platform plugin. vLLM supplies the
   OpenAI-compatible endpoint, the scheduler and the block manager; this package
   supplies the platform, the worker, the model runner and the KV pool.
-- through a **native offline engine** with its own page allocator, prefix cache
-  and continuous-batching driver, and no vLLM in the process.
+- through a **standalone offline engine** with its own page allocator, prefix
+  cache and continuous-batching driver, and no vLLM in the process.
 
 > **Status:** early development. APIs will change.
 
@@ -22,10 +22,10 @@ over them. The same runtime serves models two ways:
 - vLLM's chunked prefill, preemption with recompute and prefix caching, each
   driven by vLLM's own scheduler (`tools/smoke_engine.py`). Greedy output is
   the same whatever the token budget.
-- The native engine: every paged-decode token is the argmax of a full forward
-  pass, as the dense path's are, with near-ties judged at bf16 resolution.
-  Batched prefill, prefix sharing that reproduces a cold run token for token, and
-  a host tier that pages KV out and back.
+- The standalone engine: every paged-decode token is the argmax of a full
+  forward pass, as the dense path's are, with near-ties judged at bf16
+  resolution. Batched prefill, prefix sharing that reproduces a cold run token
+  for token, and a host tier that pages KV out and back.
 - Pages another request wrote are scrubbed before reuse, tested against vLLM's
   block lifecycle with a negative control.
 
@@ -80,15 +80,15 @@ to start when two platform plugins are active.
 | Path | Contents |
 |---|---|
 | `src/vllm_xla_gpu/kv/common` | Neutral vocabulary: page table, storage layout and cache namespace. Standard library and numpy only |
-| `src/vllm_xla_gpu/kv/control` | The native engine's page allocator, page map, prefix index and residency. Standard library, numpy and `kv/common` only |
+| `src/vllm_xla_gpu/kv/control` | The standalone engine's page allocator, page map, prefix index and residency. Standard library, numpy and `kv/common` only |
 | `src/vllm_xla_gpu/kv/execution` | The device side: pool allocation and sharding, step views and inputs, shape buckets, the continuous-batching driver, page staging and the host tier |
 | `src/vllm_xla_gpu/ops` | Paged attention and KV append through JAX-AITER, under `shard_map` for tensor parallelism |
 | `src/vllm_xla_gpu/models/adapters` | MaxText: the attention hook and the vLLM model |
-| `src/vllm_xla_gpu/engine` | The native offline engine (`PagedEngine`, `PagedInferenceWorker`), its pool settings (`PagedConfig`) and a torch-free tokenizer |
+| `src/vllm_xla_gpu/engine` | The standalone offline engine (`PagedEngine`, `PagedInferenceWorker`), its pool settings (`PagedConfig`) and a torch-free tokenizer |
 | `src/vllm_xla_gpu/plugin` | The vLLM platform plugin: platform, worker, model runner, step pipeline, KV spec and pool, page-table translation, recycled-page tracking and connector registration |
 | `tests/` | CPU and GPU tests. `gpu_only` tests skip when JAX sees no GPU |
 | `tools/` | Smoke runs through vLLM's real engine, and the latency benchmark |
-| `benchmarks/` | Native-engine serving and prefix-cache benchmarks |
+| `benchmarks/` | Standalone-engine serving and prefix-cache benchmarks |
 | `third_party/` | JAX-AITER as a submodule at jax-titan's pin, and the patches carried for MaxText and JAX-AITER |
 | `scripts/` | The container, the source trees, the Python environment, the JAX-AITER build and `env.sh` |
 | `vllm_lkg.version` | The vLLM commit |

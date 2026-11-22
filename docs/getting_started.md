@@ -193,8 +193,8 @@ window, against the previous stack (ROCm 7.2, jax 0.10.2, MaxText
 Two things this stack does differently cost 14 to 24% per step until fixed:
 - jax 0.12.1's XLA all-gathers the vocab-sharded embedding table, 2.1 GB, to
   look up one decode token. The platform sets MaxText's `use_iota_embed`,
-  whose one-hot lookup partitions locally. A native-engine caller at TP above
-  1 should set it too.
+  whose one-hot lookup partitions locally. A standalone-engine caller at TP
+  above 1 should set it too.
 - JAX-AITER's KV append widened int32 slots into a buffer from
   `hipMallocAsync`, which blocks the host until the stream drains, once per
   layer. The widening worked around an AITER pin that read slots as int64;

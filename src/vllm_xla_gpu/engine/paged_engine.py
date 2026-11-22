@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""MaxEngine with paged serving: the native engine, with no vLLM in the process.
+"""MaxEngine with paged serving: the standalone engine, no vLLM in the process.
 
 `PagedEngine` takes model construction, parameter loading, the tokenizer and
 the dense path from MaxText's `MaxEngine` unchanged, and adds a parallel paged

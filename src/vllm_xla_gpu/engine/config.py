@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The native engine's paged settings, which MaxText's config does not carry."""
+"""The standalone engine's paged settings, which MaxText's config does not carry."""
 
 from __future__ import annotations
 
