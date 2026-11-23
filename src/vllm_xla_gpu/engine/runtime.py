@@ -38,8 +38,8 @@ from typing import Sequence
 
 import numpy as np
 
-from vllm_xla_gpu.kv.control import NativeKvControlPlane, RequestDescriptor, RequestHandle
 from vllm_xla_gpu.host.shapes import StepShape, StepShapePlanner
+from vllm_xla_gpu.kv.control import NativeKvControlPlane, RequestDescriptor, RequestHandle
 from vllm_xla_gpu.kv.execution.pool_factory import PagedKvPool
 from vllm_xla_gpu.kv.execution.pool_ops import poison_pages, scrub_pages_all_layers
 from vllm_xla_gpu.kv.execution.step_view import StepView, build_step_view

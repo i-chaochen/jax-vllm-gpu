@@ -50,6 +50,9 @@ from typing import Callable, Iterable, Sequence
 
 import numpy as np
 
+from vllm_xla_gpu.engine.runtime import PagedRuntime
+from vllm_xla_gpu.host.shapes import StepShape, StepShapePlanner
+from vllm_xla_gpu.host.step_inputs import RequestSlice, StepInputs, build_step_inputs
 from vllm_xla_gpu.kv.common import CacheNamespace
 from vllm_xla_gpu.kv.control import (
     NativeKvControlPlane,
@@ -58,11 +61,8 @@ from vllm_xla_gpu.kv.control import (
     RequestState,
     pages_for_tokens,
 )
-from vllm_xla_gpu.host.shapes import StepShape, StepShapePlanner
-from vllm_xla_gpu.engine.runtime import PagedRuntime
 from vllm_xla_gpu.kv.execution.pool_factory import PagedKvPool
 from vllm_xla_gpu.kv.execution.pool_ops import poison_pages
-from vllm_xla_gpu.host.step_inputs import RequestSlice, StepInputs, build_step_inputs
 from vllm_xla_gpu.kv.execution.step_view import StepView
 
 _DEFAULT_NAMESPACE = CacheNamespace()

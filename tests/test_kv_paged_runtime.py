@@ -41,10 +41,10 @@ import pytest
 import jax
 import jax.numpy as jnp
 
+from vllm_xla_gpu.engine.driver import PagedDriver, PagedRequest
 from vllm_xla_gpu.kv.common import KvStorageLayoutV1
 from vllm_xla_gpu.kv.control import DirtyPageError, NativeKvControlPlane, RequestDescriptor
 from vllm_xla_gpu.kv.control import metadata as kv_metadata
-from vllm_xla_gpu.engine.driver import PagedDriver, PagedRequest
 from vllm_xla_gpu.kv.execution import allocate_pool
 from vllm_xla_gpu.kv.execution.pool_ops import POISON_SENTINEL, poison_pages, scrub_pages
 from vllm_xla_gpu.kv.execution.step_view import build_step_view
