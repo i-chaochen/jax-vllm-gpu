@@ -39,9 +39,9 @@ import pytest
 import jax
 import jax.numpy as jnp
 
+from vllm_xla_gpu.engine.offload_tier import HostOffloadTier
 from vllm_xla_gpu.kv.common import KvStorageLayoutV1
 from vllm_xla_gpu.kv.control import NativeKvControlPlane, RequestDescriptor, Tier
-from vllm_xla_gpu.kv.execution.offload_tier import HostOffloadTier
 from vllm_xla_gpu.kv.execution.page_staging import HOST_MEMORY_KIND
 from vllm_xla_gpu.kv.execution.pool_factory import allocate_pool
 

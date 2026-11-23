@@ -16,7 +16,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from vllm_xla_gpu.kv.execution.bucketing import StepShapePlanner
+from vllm_xla_gpu.host.shapes import StepShapePlanner
 from vllm_xla_gpu.plugin.kv_reuse import PageReuseTracker
 from vllm_xla_gpu.plugin.model_runner import (
     _attention_max_seqlen_q,

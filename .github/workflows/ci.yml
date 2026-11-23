@@ -4,8 +4,8 @@
 # Three jobs. The control plane (kv.common and kv.control) and the engine's
 # config import only the standard library and numpy, so their tests run with
 # nothing else installed. The CPU job installs the whole stack with
-# scripts/install_python_env.sh -- jax-titan's jax and jaxlib, vLLM at
-# vllm_lkg.version, MaxText with the hook patch -- and runs every test, the
+# scripts/install_python_env.sh -- jax-titan's jax and jaxlib, vLLM at its pin
+# in third_party/pins.env, MaxText with the hook patch -- and runs every test, the
 # gpu_only ones skipping. The GPU job runs them on a self-hosted gfx942 runner in
 # the TheRock container, and only where the repository variable GPU_RUNNER names
 # one. Package versions come from .github/ci-constraints.txt.

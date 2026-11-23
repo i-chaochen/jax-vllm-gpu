@@ -3,8 +3,8 @@
 #
 # The versions of the packages scripts/install_python_env.sh installs, taken
 # from the environment of docs/getting_started.md on 2026-11-19. jax, jaxlib
-# and the ROCm plugins are the wheels of .github/ci-wheels.sha256, vLLM is
-# vllm_lkg.version and MaxText is scripts/setup_sources.sh's pin.
+# and the ROCm plugins are the wheels of .github/ci-wheels.sha256, and vLLM
+# and MaxText are at the revisions in third_party/pins.env.
 #
 # The JAX and MaxText side follows jax-titan's .github/ci-constraints.txt. The
 # serving side follows vLLM: numpy stays below 2.4, which vLLM's mistral-common

@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 
-from vllm_xla_gpu.kv.execution.bucketing import StepShapePlanner
+from vllm_xla_gpu.host.shapes import StepShapePlanner
 
 from vllm_xla_gpu.plugin.kv_reuse import PageReuseTracker
 from vllm_xla_gpu.plugin.page_table import RequestPages

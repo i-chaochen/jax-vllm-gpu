@@ -1,20 +1,23 @@
 """The paged KV runtime's layering rule, enforced rather than documented.
 
-Two packages, two allowances:
+Three packages, three allowances:
 
   * ``kv.common`` -- the neutral vocabulary -- may import the standard library
     and ``numpy``, and nothing else.
   * ``kv.control`` -- the semantic control plane -- may also import
     ``kv.common``.
+  * ``host`` -- a step's shape and inputs, built on the host -- may also import
+    ``kv.common``.
 
-Neither may import ``jax``, ``jax_aiter``, ``maxtext`` or ``vllm``. Kernel
+None may import ``jax``, ``jax_aiter``, ``maxtext`` or ``vllm``. Kernel
 providers are reached only from ``kv.execution``, one layer up.
 
-Both properties this buys are load-bearing, which is why the rule is checked and
+The properties this buys are load-bearing, which is why the rule is checked and
 not merely written down. The layers stay testable with no accelerator present,
-so their logic is covered by ordinary CI rather than by a GPU job. And if a
-second consumer ever wants the control plane, extracting it is a directory move
-with no framework dependency to untangle first.
+so their logic is covered by ordinary CI rather than by a GPU job. If a second
+consumer ever wants the control plane, extracting it is a directory move with no
+framework dependency to untangle first. And a worker that runs its steps with
+no JAX in the process can still import ``host``.
 
 Checked statically over the AST, so a violation is reported without importing
 anything, and one subprocess check confirms the static rule matches what the
@@ -42,7 +45,7 @@ import subprocess
 import sys
 import unittest
 
-_KV_DIR = pathlib.Path(__file__).resolve().parents[1] / "src" / "vllm_xla_gpu" / "kv"
+_SRC_DIR = pathlib.Path(__file__).resolve().parents[1] / "src"
 _PACKAGE = "vllm_xla_gpu"
 
 # A package importing any of these has broken the rule outright, and saying so
@@ -79,7 +82,7 @@ class _Layer:
 
   @property
   def directory(self) -> pathlib.Path:
-    return _KV_DIR / self.package.rsplit(".", 1)[1]
+    return _SRC_DIR.joinpath(*self.package.split("."))
 
   def permits(self, module: str) -> bool:
     return any(_within(module, prefix) for prefix in self.allowed_internal)
@@ -87,6 +90,7 @@ class _Layer:
 
 _KV_COMMON = "vllm_xla_gpu.kv.common"
 _KV_CONTROL = "vllm_xla_gpu.kv.control"
+_HOST = "vllm_xla_gpu.host"
 # Deliberately not a checked layer: `kv.execution` is where jax, model config
 # and the kernel provider legitimately live. What matters is that nothing below
 # it imports it, which the test below asserts.
@@ -95,6 +99,7 @@ _KV_EXECUTION = "vllm_xla_gpu.kv.execution"
 LAYERS = (
     _Layer(package=_KV_COMMON, allowed_internal=frozenset({_KV_COMMON})),
     _Layer(package=_KV_CONTROL, allowed_internal=frozenset({_KV_CONTROL, _KV_COMMON})),
+    _Layer(package=_HOST, allowed_internal=frozenset({_HOST, _KV_COMMON})),
 )
 
 
@@ -158,10 +163,10 @@ class ImportRuleTest(unittest.TestCase):
       reached = sorted(m for m in _imports(path, common) if _within(m, _KV_CONTROL))
       self.assertEqual(reached, [], f"kv/common/{path.name} imports kv.control, inverting the layering")
 
-  def test_neither_lower_layer_reaches_up_into_kv_execution(self):
+  def test_no_checked_layer_reaches_up_into_kv_execution(self):
     """`kv.execution` is where jax and the kernel provider live.
 
-    It exists precisely to hold the couplings the two layers below refuse, so a
+    It exists precisely to hold the couplings the layers below refuse, so a
     single import in this direction would put jax back into the control plane's
     dependency graph and undo the whole split. Named separately from the
     allow-list check because this is the failure most likely to be introduced by
@@ -182,15 +187,16 @@ class ImportRuleTest(unittest.TestCase):
               f"{layer.package}/__init__.py imports from {node.module}, outside its own package",
           )
 
-  def test_importing_the_control_plane_does_not_load_a_framework(self):
+  def test_importing_the_checked_layers_does_not_load_a_framework(self):
     """What the static rule is actually for, confirmed against the interpreter.
 
     A fresh interpreter, because by the time this test runs pytest's own
     collection has already imported jax, so `sys.modules` in-process proves
-    nothing.
+    nothing. `host` imports nothing in its `__init__`, so its modules are named.
     """
     code = (
-        "import sys, vllm_xla_gpu.kv.control, vllm_xla_gpu.kv.common;"
+        "import sys, vllm_xla_gpu.kv.control, vllm_xla_gpu.kv.common, "
+        "vllm_xla_gpu.host.shapes, vllm_xla_gpu.host.step_inputs;"
         "print(sorted({m.split('.')[0] for m in sys.modules} & "
         "{'jax', 'jaxlib', 'flax', 'torch', 'tensorflow', 'maxtext', 'vllm'}))"
     )

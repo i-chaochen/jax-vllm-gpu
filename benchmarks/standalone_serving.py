@@ -9,7 +9,7 @@ Usage, from this repository's root:
 
     DECOUPLE_GCLOUD=TRUE JA_ROOT_DIR=/path/to/jax-aiter \\
     PYTHONPATH=src:/path/to/maxtext/src:/path/to/jax-aiter \\
-    python3 benchmarks/run_serving_benchmark.py --mode both
+    python3 benchmarks/standalone_serving.py --mode both
 
 `--mode paged` needs neither JetStream nor a checkpoint. `--mode dense` needs
 JetStream for real, because the dense `_prefill_jit` returns its `ResultTokens`
@@ -43,9 +43,10 @@ from flax.linen import partitioning as nn_partitioning
 from maxtext.common.common_types import MODEL_MODE_PREFILL
 from maxtext.configs import pyconfig
 from vllm_xla_gpu.engine.config import PagedConfig
-from vllm_xla_gpu.kv.execution import benchmark
 from maxtext.utils import maxtext_utils, model_creation_utils
 from maxtext.utils.globals import MAXTEXT_CONFIGS_DIR
+
+import harness  # benchmarks/harness.py, beside this script
 
 # Small enough to run in a couple of minutes, large enough that the KV footprint
 # is the binding constraint rather than a rounding error. head_dim 128 with equal
@@ -150,7 +151,7 @@ def main() -> int:
           "share already-computed pages between requests with a common prefix (paged arm only). "
           "Expect little or no saving here: this harness admits the whole trace at once, and a "
           "request can only reuse pages another request has already finished with. Use "
-          "run_prefix_cache_benchmark.py to measure sharing"
+          "standalone_prefix_cache.py to measure sharing"
       ),
   )
   parser.add_argument("--requests", type=int, default=24)
@@ -205,7 +206,7 @@ def main() -> int:
         # block is accounted for, so both traces present the same total prompt
         # length and the comparison is about sharing rather than about size.
         unique = max(args.mean_prompt - args.shared_prefix, args.page_size)
-        trace = benchmark.shared_prefix_trace(
+        trace = harness.shared_prefix_trace(
             args.requests,
             args.shared_prefix,
             unique,
@@ -214,7 +215,7 @@ def main() -> int:
             num_variants=args.prefix_variants,
         )
       else:
-        trace = benchmark.synthetic_trace(
+        trace = harness.synthetic_trace(
             args.requests, args.mean_prompt, args.mean_output, seed=args.seed
         )
       return copy.deepcopy(trace)
@@ -238,7 +239,7 @@ def main() -> int:
             f"larger batch buckets need an aiter prebuild, so pass --paged-max-batch to override"
         )
       engine.init_paged_runtime(max_requests=paged_batch, max_batched_tokens=args.max_prompt)
-      warmed = benchmark.warmup_paged(
+      warmed = harness.warmup_paged(
           engine,
           params,
           max_prompt=args.max_prompt,
@@ -250,7 +251,7 @@ def main() -> int:
               args.max_context, int(args.mean_prompt * 1.6) + int(args.mean_output * 1.6) + 2
           ),
       )
-      summary = benchmark.run_repeated(
+      summary = harness.run_repeated(
           engine,
           params,
           fresh_trace,
@@ -262,14 +263,14 @@ def main() -> int:
       summary["batch_cap"] = paged_batch
     else:
       state = engine.init_decode_state()
-      benchmark.warmup_dense(engine, params, state, prompt_len=min(8, args.max_prompt))
+      harness.warmup_dense(engine, params, state, prompt_len=min(8, args.max_prompt))
       durations = []
       for _ in range(max(args.repeats, 1)):
-        summary = benchmark.run_dense(engine, params, fresh_trace(), max_batch=args.max_batch)
+        summary = harness.run_dense(engine, params, fresh_trace(), max_batch=args.max_batch)
         durations.append(summary["duration_s"])
       summary["repeat_durations_s"] = durations
-      summary["stability_ratio"] = benchmark.stability_ratio(durations)
-      summary["latency_is_reportable"] = benchmark.is_stable(durations)
+      summary["stability_ratio"] = harness.stability_ratio(durations)
+      summary["latency_is_reportable"] = harness.is_stable(durations)
       summary["kv_tokens_committed"] = args.max_batch * args.max_context
       summary["batch_cap"] = args.max_batch
 
@@ -282,7 +283,7 @@ def main() -> int:
         "mean_output": args.mean_output,
     }
     results[arm] = summary
-    print(benchmark.report(arm, summary))
+    print(harness.report(arm, summary))
     print(f"  KV tokens committed: {summary['kv_tokens_committed']}")
     if summary.get("prefix_cache_enabled"):
       print(
@@ -308,7 +309,7 @@ def main() -> int:
       )
 
   if args.json_out:
-    benchmark.write_json(args.json_out, results)
+    harness.write_json(args.json_out, results)
     print(f"\nwrote {args.json_out}")
   return 0
 

@@ -11,13 +11,14 @@
 # Every other package is pinned by .github/ci-constraints.txt. CI and
 # docs/getting_started.md both run this.
 #
-# Environment: WHEELS, VLLM_SRC (at vllm_lkg.version), MAXTEXT_SRC.
+# Environment: WHEELS, VLLM_SRC (at VLLM_REV in third_party/pins.env),
+# MAXTEXT_SRC.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 CONSTRAINTS=$REPO/.github/ci-constraints.txt
 : "${WHEELS:?directory holding the jax and jaxlib wheels}"
-: "${VLLM_SRC:?vLLM checkout at the commit in vllm_lkg.version}"
+: "${VLLM_SRC:?vLLM checkout at VLLM_REV in third_party/pins.env}"
 : "${MAXTEXT_SRC:?MaxText checkout with the hook patch, from scripts/setup_sources.sh}"
 pip_install() { python -m pip install -c "$CONSTRAINTS" "$@"; }
 

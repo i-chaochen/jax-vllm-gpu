@@ -17,6 +17,6 @@ licensed under the Apache License, Version 2.0:
     modifies src/maxtext/layers/attentions.py, src/maxtext/models/models.py
     and src/maxtext/configs/pyconfig_deprecated.py
 
-The paged KV runtime under src/vllm_xla_gpu/kv, ops and engine was developed
-in a branch of MaxText (ROCm/maxtext chao/kv_paged_kernels) and moved here with
-its history.
+The paged KV runtime under src/vllm_xla_gpu/kv, host, ops and engine, and its
+benchmark harness in benchmarks/harness.py, were developed in a branch of
+MaxText (ROCm/maxtext chao/kv_paged_kernels) and moved here with their history.

@@ -22,11 +22,13 @@ import pytest
 
 import vllm_xla_gpu.plugin
 
-# The page-ownership half of the standalone control plane. `kv_execution` is
-# deliberately not here: its pool factory, bucketing, step view and pool ops are
-# frontend-agnostic and this platform is a legitimate user of all of them. It is
-# specifically the allocator and the prefix index that vLLM replaces.
-FORBIDDEN_ROOT = "vllm_xla_gpu.kv.control"
+# The page-ownership half of the standalone control plane, and the standalone
+# engine that drives it. `kv_execution` is deliberately not here: its pool
+# factory, step view and pool ops are frontend-agnostic and this platform is a
+# legitimate user of all of them. It is specifically the allocator and the
+# prefix index that vLLM replaces, and the engine's driver and runtime reach
+# both.
+FORBIDDEN_ROOTS = ("vllm_xla_gpu.kv.control", "vllm_xla_gpu.engine")
 
 
 def plugin_modules():
@@ -62,7 +64,8 @@ def test_no_plugin_module_reaches_maxtexts_own_allocator(path):
         {
             name
             for name in imported_names(path)
-            if name == FORBIDDEN_ROOT or name.startswith(f"{FORBIDDEN_ROOT}.")
+            for root in FORBIDDEN_ROOTS
+            if name == root or name.startswith(f"{root}.")
         }
     )
 

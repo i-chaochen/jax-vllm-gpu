@@ -56,7 +56,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from vllm_xla_gpu.kv.execution.driver import PagedDriver, PagedRequest
+from vllm_xla_gpu.engine.driver import PagedDriver, PagedRequest
 
 
 @dataclasses.dataclass

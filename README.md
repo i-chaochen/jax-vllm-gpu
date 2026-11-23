@@ -58,7 +58,7 @@ No file in vLLM's tree changes. vLLM finds platforms through
 `importlib.metadata.entry_points(group="vllm.platform_plugins")`, so installing
 this wheel is the whole integration step, and out-of-tree plugins take
 precedence over vLLM's built-in ROCm platform. The supported vLLM commit is
-tpu-inference's last-known-good, recorded in `vllm_lkg.version`.
+tpu-inference's last-known-good, recorded in `third_party/pins.env`.
 
 | what | value |
 |---|---|
@@ -76,17 +76,17 @@ appears in vLLM's `Platform plugin vllm_xla_gpu is activated` log line.
 |---|---|
 | `src/vllm_xla_gpu/kv/common` | Neutral vocabulary: page table, storage layout and cache namespace. Standard library and numpy only |
 | `src/vllm_xla_gpu/kv/control` | The standalone engine's page allocator, page map, prefix index and residency. Standard library, numpy and `kv/common` only |
-| `src/vllm_xla_gpu/kv/execution` | The device side: pool allocation and sharding, step views and inputs, shape buckets, the continuous-batching driver, page staging and the host tier |
+| `src/vllm_xla_gpu/kv/execution` | The device side: pool allocation and sharding, step views and page staging |
+| `src/vllm_xla_gpu/host` | What a step needs before it reaches a device: the ladder of step shapes, and the tokens, positions and sampling indices. Standard library, numpy and `kv/common` only |
 | `src/vllm_xla_gpu/ops` | Paged attention and KV append through JAX-AITER, under `shard_map` for tensor parallelism |
 | `src/vllm_xla_gpu/models/adapters` | MaxText: the attention hook and the vLLM model |
-| `src/vllm_xla_gpu/engine` | The standalone offline engine (`PagedEngine`, `PagedInferenceWorker`), its pool settings (`PagedConfig`) and a torch-free tokenizer |
+| `src/vllm_xla_gpu/engine` | The standalone offline engine (`PagedEngine`, `PagedInferenceWorker`), its continuous-batching driver, the runtime that wires it to the control plane, the host tier, its pool settings (`PagedConfig`) and a torch-free tokenizer |
 | `src/vllm_xla_gpu/plugin` | The vLLM platform plugin: platform, worker, model runner, step pipeline, KV spec and pool, page-table translation, recycled-page tracking and connector registration |
 | `tests/` | CPU and GPU tests. `gpu_only` tests skip when JAX sees no GPU |
-| `tools/` | Smoke runs through vLLM's real engine, and the latency benchmark |
-| `benchmarks/` | Standalone-engine serving and prefix-cache benchmarks |
-| `third_party/` | JAX-AITER as a submodule at jax-titan's pin, and the patches carried for MaxText and JAX-AITER |
+| `tools/` | Smoke runs through vLLM's real engine and worker |
+| `benchmarks/` | `vllm_latency.py`: TTFT and per-step latency through vLLM's engine. `standalone_*.py`: the standalone engine's serving and prefix-cache benchmarks, with their harness |
+| `third_party/` | JAX-AITER as a submodule at jax-titan's pin, the patches carried for MaxText and JAX-AITER, and `pins.env`, the vLLM and MaxText revisions |
 | `scripts/` | The container, the source trees, the Python environment, the JAX-AITER build and `env.sh` |
-| `vllm_lkg.version` | The vLLM commit |
 | `.github/` | CI, with the pinned wheels and package versions it installs |
 | `.cursor/skills/`, `.claude/skills/` | Agent skill (identical copies): architecture rules and test discipline |
 

@@ -28,8 +28,8 @@ pytest.importorskip("jax", reason="the pool is device memory")
 
 import jax.numpy as jnp
 
+from vllm_xla_gpu.host.shapes import StepShape
 from vllm_xla_gpu.kv.common import KvStorageLayoutV1
-from vllm_xla_gpu.kv.execution.bucketing import StepShape
 from vllm_xla_gpu.kv.execution.pool_factory import allocate_pool
 from vllm_xla_gpu.kv.execution.pool_ops import POISON_SENTINEL, poison_pages
 

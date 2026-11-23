@@ -60,9 +60,10 @@ from maxtext.common.common_types import MODEL_MODE_PREFILL
 from maxtext.configs import pyconfig
 from vllm_xla_gpu.engine.config import PagedConfig
 from vllm_xla_gpu.kv.common import CacheNamespace
-from vllm_xla_gpu.kv.execution import benchmark
 from maxtext.utils import maxtext_utils, model_creation_utils
 from maxtext.utils.globals import MAXTEXT_CONFIGS_DIR
+
+import harness  # benchmarks/harness.py, beside this script
 
 NAMESPACE = CacheNamespace(model_fingerprint="prefix-bench", tokenizer="synthetic")
 
@@ -127,7 +128,7 @@ def serve(engine, params, requests, *, max_batch: int, measure: bool):
   reads them off `PagedRequest`.
   """
   # pylint: disable=import-outside-toplevel
-  from vllm_xla_gpu.kv.execution.driver import PagedDriver
+  from vllm_xla_gpu.engine.driver import PagedDriver
 
   runtime = engine.paged_runtime
   trace = list(requests)
@@ -175,7 +176,7 @@ def run_arm(args, devices, prefix_cache: bool):
   engine.init_paged_runtime(max_requests=args.max_batch, max_batched_tokens=args.max_prompt)
 
   def trace():
-    return benchmark.shared_prefix_trace(
+    return harness.shared_prefix_trace(
         args.requests,
         args.shared_prefix,
         args.unique,
