@@ -169,12 +169,12 @@ near-tie, and either order is correct.
 
 ## 7. Latency
 
-`tools/bench_latency.py` times each step at the `device_get` that is its only
-synchronization point, and reports the median over steps that did not
+`benchmarks/vllm_latency.py` times each step at the `device_get` that is its
+only synchronization point, and reports the median over steps that did not
 compile, counting compiles apart:
 
 ```bash
-python tools/bench_latency.py \
+python benchmarks/vllm_latency.py \
   --model /data/Llama-3.3-70B-Instruct --tensor-parallel-size 8 --num-gpu-blocks-override 8192 \
   --batch 1 --batch 4 --batch 8 --gen-tokens 17 --maxtext model_name=llama3.3-70b \
   --maxtext load_parameters_path=/data/cchen104/maxtext_ckpt_70b/0/items
