@@ -76,7 +76,8 @@ appears in vLLM's `Platform plugin vllm_xla_gpu is activated` log line.
 |---|---|
 | `src/vllm_xla_gpu/kv/common` | Neutral vocabulary: page table, storage layout and cache namespace. Standard library and numpy only |
 | `src/vllm_xla_gpu/kv/control` | The standalone engine's page allocator, page map, prefix index and residency. Standard library, numpy and `kv/common` only |
-| `src/vllm_xla_gpu/kv/execution` | The device side: pool allocation and sharding, step views and inputs, shape buckets, the continuous-batching driver, page staging and the host tier |
+| `src/vllm_xla_gpu/kv/execution` | The device side: pool allocation and sharding, step views, the continuous-batching driver, page staging and the host tier |
+| `src/vllm_xla_gpu/host` | What a step needs before it reaches a device: the ladder of step shapes, and the tokens, positions and sampling indices. Standard library, numpy and `kv/common` only |
 | `src/vllm_xla_gpu/ops` | Paged attention and KV append through JAX-AITER, under `shard_map` for tensor parallelism |
 | `src/vllm_xla_gpu/models/adapters` | MaxText: the attention hook and the vLLM model |
 | `src/vllm_xla_gpu/engine` | The standalone offline engine (`PagedEngine`, `PagedInferenceWorker`), its pool settings (`PagedConfig`) and a torch-free tokenizer |

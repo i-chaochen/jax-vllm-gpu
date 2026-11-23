@@ -32,7 +32,7 @@ import jax
 import jax.numpy as jnp
 
 from vllm_xla_gpu.kv.common import KvStorageLayoutV1
-from vllm_xla_gpu.kv.execution.bucketing import StepShapePlanner
+from vllm_xla_gpu.host.shapes import StepShapePlanner
 from vllm_xla_gpu.kv.execution.pool_factory import allocate_pool
 
 from vllm_xla_gpu.plugin import pool as pool_module

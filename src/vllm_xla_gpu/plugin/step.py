@@ -20,7 +20,7 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from vllm_xla_gpu.kv.common import KvPageTableV1
-from vllm_xla_gpu.kv.execution.step_inputs import RequestSlice, StepInputs, build_step_inputs
+from vllm_xla_gpu.host.step_inputs import RequestSlice, StepInputs, build_step_inputs
 from vllm_xla_gpu.kv.execution.step_view import StepView, build_step_view
 
 from .kv_reuse import PageReuseTracker

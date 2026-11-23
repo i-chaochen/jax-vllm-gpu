@@ -213,7 +213,7 @@ class JaxModelRunner:
 
     def initialize_kv_cache(self, kv_cache_config: Any) -> None:
         """Allocate the pool for the block count vLLM settled on."""
-        from vllm_xla_gpu.kv.execution.bucketing import StepShapePlanner
+        from vllm_xla_gpu.host.shapes import StepShapePlanner
 
         from .kv_spec import build_layout
         from .mesh import assert_kv_heads_shardable, kv_head_shards, pool_replicas

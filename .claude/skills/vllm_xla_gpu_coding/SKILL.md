@@ -23,10 +23,10 @@ patched either: the plugin is found through the `vllm.platform_plugins` and
 ## Architecture Rules
 
 - **Layers:** `kv/common` imports only the standard library and numpy;
-  `kv/control` may also import `kv/common`; `kv/execution` holds the device
-  side and is the lowest layer that may import jax or a kernel provider.
-  `tests/test_kv_import_rule.py` enforces this. Never import jax, jax_aiter,
-  maxtext or vllm below `kv/execution`.
+  `kv/control` and `host` may also import `kv/common`; `kv/execution` holds
+  the device side and is the lowest layer that may import jax or a kernel
+  provider. `tests/test_kv_import_rule.py` enforces this. Never import jax,
+  jax_aiter, maxtext or vllm in `kv/common`, `kv/control` or `host`.
 - **One page owner per mode:** the standalone engine owns pages through
   `kv/control`'s allocator and prefix index. Under the vLLM plugin, vLLM's
   `KVCacheManager` owns them, and `plugin/` never imports `kv/control`

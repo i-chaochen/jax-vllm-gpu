@@ -26,12 +26,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from vllm_xla_gpu.kv.execution.bucketing import (
-    StepShape,
-    batch_ladder,
-    bucket_up,
-    token_ladder,
-)
 from vllm_xla_gpu.kv.execution.driver import PagedDriver, PagedRequest, StepOutcome
 from vllm_xla_gpu.kv.execution.layout_builder import build_storage_layout
 from vllm_xla_gpu.kv.execution.offload_tier import HostOffloadTier, TierCapacityError
@@ -48,7 +42,6 @@ from vllm_xla_gpu.kv.execution.pool_ops import (
     scrub_pages,
     scrub_pages_all_layers,
 )
-from vllm_xla_gpu.kv.execution.step_inputs import RequestSlice, StepInputs, build_step_inputs
 from vllm_xla_gpu.kv.execution.step_view import StepView, build_step_view
 
 __all__ = [
@@ -57,17 +50,11 @@ __all__ = [
     "PagedDriver",
     "PagedKvPool",
     "PagedRequest",
-    "RequestSlice",
     "StagedPages",
-    "StepInputs",
     "StepOutcome",
-    "StepShape",
     "StepView",
     "TierCapacityError",
     "allocate_pool",
-    "batch_ladder",
-    "bucket_up",
-    "build_step_inputs",
     "build_step_view",
     "build_storage_layout",
     "offload_pages",
@@ -76,5 +63,4 @@ __all__ = [
     "reload_pages",
     "scrub_pages",
     "scrub_pages_all_layers",
-    "token_ladder",
 ]

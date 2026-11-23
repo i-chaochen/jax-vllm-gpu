@@ -45,7 +45,7 @@ import jax
 import jax.numpy as jnp
 
 from vllm_xla_gpu.kv.common import KvPageTableV1
-from vllm_xla_gpu.kv.execution.bucketing import StepShape
+from vllm_xla_gpu.host.shapes import StepShape
 
 
 @dataclasses.dataclass(frozen=True)

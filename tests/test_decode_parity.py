@@ -460,7 +460,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
     reference that distinguishes "packed correctly" from "packed consistently".
     """
     # pylint: disable=import-outside-toplevel
-    from vllm_xla_gpu.kv.execution.step_inputs import RequestSlice, build_step_inputs
+    from vllm_xla_gpu.host.step_inputs import RequestSlice, build_step_inputs
 
     cfg = _config(**_PAGED)
     params_state = self._build_params(cfg)

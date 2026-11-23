@@ -32,7 +32,7 @@ import numpy as np
 from vllm_xla_gpu.kv.common import CacheNamespace, KvPageTableV1, KvStorageLayoutV1
 from vllm_xla_gpu.kv.control import NativeKvControlPlane, RequestHandle
 from vllm_xla_gpu.kv.execution import allocate_pool, PagedDriver, PagedRequest
-from vllm_xla_gpu.kv.execution.bucketing import (
+from vllm_xla_gpu.host.shapes import (
     StepShape,
     StepShapePlanner,
     batch_ladder,
@@ -48,7 +48,7 @@ from vllm_xla_gpu.kv.execution.pool_ops import (
     scrub_pages,
     scrub_pages_all_layers,
 )
-from vllm_xla_gpu.kv.execution.step_inputs import RequestSlice, build_step_inputs
+from vllm_xla_gpu.host.step_inputs import RequestSlice, build_step_inputs
 from vllm_xla_gpu.kv.execution.step_view import build_step_view
 
 PAGE = 16
@@ -191,7 +191,7 @@ class StepViewTest(unittest.TestCase):
 
   def _view(self, num_requests=4, num_tokens=4, num_pages=8, max_seqlen_k=64):
     """The two-request decode table above, padded to a given bucketed shape."""
-    from vllm_xla_gpu.kv.execution.bucketing import StepShape  # pylint: disable=import-outside-toplevel
+    from vllm_xla_gpu.host.shapes import StepShape  # pylint: disable=import-outside-toplevel
 
     shape = StepShape(
         num_requests=num_requests,

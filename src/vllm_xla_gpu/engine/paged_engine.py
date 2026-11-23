@@ -116,7 +116,7 @@ class PagedEngine(maxengine.MaxEngine):
     """
     # pylint: disable=import-outside-toplevel
     from vllm_xla_gpu.kv.control import NativeKvControlPlane
-    from vllm_xla_gpu.kv.execution.bucketing import StepShapePlanner
+    from vllm_xla_gpu.host.shapes import StepShapePlanner
     from vllm_xla_gpu.kv.execution.engine_adapter import PagedRuntime
     from vllm_xla_gpu.kv.execution.pool_factory import allocate_pool
 
@@ -477,7 +477,7 @@ class PagedEngine(maxengine.MaxEngine):
       return None, None
 
     # pylint: disable=import-outside-toplevel
-    from vllm_xla_gpu.kv.execution.step_inputs import RequestSlice, build_step_inputs
+    from vllm_xla_gpu.host.step_inputs import RequestSlice, build_step_inputs
 
     # Built in numpy, deliberately. The `jnp` spelling compiles a fresh program
     # per prompt length: the input to a pad is a different shape each time, and
@@ -545,7 +545,7 @@ class PagedEngine(maxengine.MaxEngine):
       return None, False
 
     # pylint: disable=import-outside-toplevel
-    from vllm_xla_gpu.kv.execution.step_inputs import RequestSlice, build_step_inputs
+    from vllm_xla_gpu.host.step_inputs import RequestSlice, build_step_inputs
 
     supplied = np.asarray(next_tokens, dtype=np.int64).reshape(-1)[: len(handles)]
     inputs = build_step_inputs(

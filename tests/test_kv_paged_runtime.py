@@ -137,7 +137,7 @@ class PoisonedPageTest(parameterized.TestCase):
     return handle
 
   def _shape(self, num_requests, num_tokens, num_pages, is_decode=True):
-    from vllm_xla_gpu.kv.execution.bucketing import StepShape  # pylint: disable=import-outside-toplevel
+    from vllm_xla_gpu.host.shapes import StepShape  # pylint: disable=import-outside-toplevel
 
     return StepShape(
         num_requests=num_requests,

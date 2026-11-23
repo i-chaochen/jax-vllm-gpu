@@ -23,7 +23,7 @@ import pytest
 import vllm_xla_gpu.plugin
 
 # The page-ownership half of the standalone control plane. `kv_execution` is
-# deliberately not here: its pool factory, bucketing, step view and pool ops are
+# deliberately not here: its pool factory, step view and pool ops are
 # frontend-agnostic and this platform is a legitimate user of all of them. It is
 # specifically the allocator and the prefix index that vLLM replaces.
 FORBIDDEN_ROOT = "vllm_xla_gpu.kv.control"
