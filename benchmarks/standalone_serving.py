@@ -8,7 +8,7 @@ device -- sharding is a separate milestone and would only add a variable.
 Usage, from this repository's root:
 
     DECOUPLE_GCLOUD=TRUE JA_ROOT_DIR=/path/to/jax-aiter \\
-    PYTHONPATH=src:/path/to/maxtext/src:/path/to/jax-aiter \\
+    PYTHONPATH=.:/path/to/maxtext/src:/path/to/jax-aiter \\
     python3 benchmarks/standalone_serving.py --mode both
 
 `--mode paged` needs neither JetStream nor a checkpoint. `--mode dense` needs

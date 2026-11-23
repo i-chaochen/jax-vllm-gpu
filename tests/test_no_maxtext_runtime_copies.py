@@ -15,7 +15,7 @@ import pathlib
 import re
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
-SCANNED = ("src", "tests", "tools", "benchmarks")
+SCANNED = ("vllm_xla_gpu", "tests", "tools", "benchmarks")
 
 # MaxText modules whose code now lives in this package.
 MOVED = (
