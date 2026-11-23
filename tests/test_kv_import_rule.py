@@ -45,7 +45,7 @@ import subprocess
 import sys
 import unittest
 
-_SRC_DIR = pathlib.Path(__file__).resolve().parents[1] / "src"
+_REPO = pathlib.Path(__file__).resolve().parents[1]
 _PACKAGE = "vllm_xla_gpu"
 
 # A package importing any of these has broken the rule outright, and saying so
@@ -82,7 +82,7 @@ class _Layer:
 
   @property
   def directory(self) -> pathlib.Path:
-    return _SRC_DIR.joinpath(*self.package.split("."))
+    return _REPO.joinpath(*self.package.split("."))
 
   def permits(self, module: str) -> bool:
     return any(_within(module, prefix) for prefix in self.allowed_internal)

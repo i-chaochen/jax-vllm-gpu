@@ -54,8 +54,11 @@ vllm_xla_gpu = "vllm_xla_gpu.plugin.platform:register"
 [project.entry-points."vllm.general_plugins"]
 vllm_xla_gpu_kv_connector = "vllm_xla_gpu.plugin.connector:register"
 
+# The package sits at the repository root beside tests/, tools/, benchmarks/
+# and third_party/, which discovery would otherwise pick up as namespace
+# packages.
 [tool.setuptools.packages.find]
-where = ["src"]
+include = ["vllm_xla_gpu*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -111,10 +111,12 @@ DECOUPLE_GCLOUD=TRUE HIP_VISIBLE_DEVICES=0 python -m pytest tests/test_decode_pa
 pass and skip counts: a GPU test missing its `gpu_only` mark runs on CPU, and
 one that skips reports success.
 
-The control plane and the engine's config need only numpy:
+The control plane and the engine's config need only numpy. From the
+repository root, `python -m pytest` imports the package from the tree, so
+nothing else has to be installed:
 
 ```bash
-PYTHONPATH=src python -m pytest tests/test_kv_common.py tests/test_kv_control.py \
+python -m pytest tests/test_kv_common.py tests/test_kv_control.py \
   tests/test_kv_import_rule.py tests/test_kv_prefix_cache.py tests/test_kv_residency.py \
   tests/test_engine_config.py tests/test_no_maxtext_runtime_copies.py tests/test_profiling.py \
   tests/test_agent_skills.py

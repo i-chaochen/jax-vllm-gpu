@@ -150,7 +150,7 @@ class HfTokenizerTest(unittest.TestCase):
     """
     script = (
         "import sys, json, os, tempfile\n"
-        "sys.path.insert(0, os.environ['PACKAGE_SRC'])\n"
+        "sys.path.insert(0, os.environ['REPO_ROOT'])\n"
         f"d = {self.dir!r}\n"
         "from vllm_xla_gpu.engine import tokenizer as hf_tokenizer\n"
         "t = hf_tokenizer.build_tokenizer(d)\n"
@@ -163,7 +163,7 @@ class HfTokenizerTest(unittest.TestCase):
         "print('LEAKED:' + ','.join(sorted(bad)))\n"
     )
     env = dict(os.environ)
-    env["PACKAGE_SRC"] = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
+    env["REPO_ROOT"] = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     env["JAX_PLATFORMS"] = "cpu"
     out = subprocess.run(
         [sys.executable, "-c", script], capture_output=True, text=True, check=True, env=env
