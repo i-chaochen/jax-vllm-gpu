@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import pytest
 
 
-from jax_vllm_gpu.plugin.batch_state import BatchState
+from vllm_xla_gpu.plugin.batch_state import BatchState
 
 
 @dataclass

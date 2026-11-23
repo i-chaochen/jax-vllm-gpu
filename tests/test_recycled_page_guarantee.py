@@ -28,15 +28,15 @@ pytest.importorskip("jax", reason="the pool is device memory")
 
 import jax.numpy as jnp
 
-from jax_vllm_gpu.kv.common import KvStorageLayoutV1
-from jax_vllm_gpu.kv.execution.bucketing import StepShape
-from jax_vllm_gpu.kv.execution.pool_factory import allocate_pool
-from jax_vllm_gpu.kv.execution.pool_ops import POISON_SENTINEL, poison_pages
+from vllm_xla_gpu.kv.common import KvStorageLayoutV1
+from vllm_xla_gpu.kv.execution.bucketing import StepShape
+from vllm_xla_gpu.kv.execution.pool_factory import allocate_pool
+from vllm_xla_gpu.kv.execution.pool_ops import POISON_SENTINEL, poison_pages
 
-from jax_vllm_gpu.plugin import pool as pool_module
-from jax_vllm_gpu.plugin.kv_reuse import DirtyPageError, PageReuseTracker
-from jax_vllm_gpu.plugin.page_table import RequestPages, build_page_table
-from jax_vllm_gpu.plugin.step import prepare_step
+from vllm_xla_gpu.plugin import pool as pool_module
+from vllm_xla_gpu.plugin.kv_reuse import DirtyPageError, PageReuseTracker
+from vllm_xla_gpu.plugin.page_table import RequestPages, build_page_table
+from vllm_xla_gpu.plugin.step import prepare_step
 
 PAGE = 16
 NUM_PAGES = 8

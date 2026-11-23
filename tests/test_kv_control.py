@@ -29,8 +29,8 @@ import unittest
 
 import numpy as np
 
-from jax_vllm_gpu.kv.common import KvStorageLayoutV1
-from jax_vllm_gpu.kv.control import (
+from vllm_xla_gpu.kv.common import KvStorageLayoutV1
+from vllm_xla_gpu.kv.control import (
     DirtyPageError,
     DoubleFreeError,
     KvControlPlane,
@@ -52,7 +52,7 @@ from jax_vllm_gpu.kv.control import (
     pages_for_tokens,
     token_slot,
 )
-from jax_vllm_gpu.kv.control.logical_block import LogicalBlock, check_transition
+from vllm_xla_gpu.kv.control.logical_block import LogicalBlock, check_transition
 
 PAGE = 16
 

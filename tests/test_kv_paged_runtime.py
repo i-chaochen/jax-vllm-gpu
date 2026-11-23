@@ -41,12 +41,12 @@ import pytest
 import jax
 import jax.numpy as jnp
 
-from jax_vllm_gpu.kv.common import KvStorageLayoutV1
-from jax_vllm_gpu.kv.control import DirtyPageError, NativeKvControlPlane, RequestDescriptor
-from jax_vllm_gpu.kv.control import metadata as kv_metadata
-from jax_vllm_gpu.kv.execution import allocate_pool, PagedDriver, PagedRequest
-from jax_vllm_gpu.kv.execution.pool_ops import POISON_SENTINEL, poison_pages, scrub_pages
-from jax_vllm_gpu.kv.execution.step_view import build_step_view
+from vllm_xla_gpu.kv.common import KvStorageLayoutV1
+from vllm_xla_gpu.kv.control import DirtyPageError, NativeKvControlPlane, RequestDescriptor
+from vllm_xla_gpu.kv.control import metadata as kv_metadata
+from vllm_xla_gpu.kv.execution import allocate_pool, PagedDriver, PagedRequest
+from vllm_xla_gpu.kv.execution.pool_ops import POISON_SENTINEL, poison_pages, scrub_pages
+from vllm_xla_gpu.kv.execution.step_view import build_step_view
 
 PAGE = 16
 # The AOT pa_ragged configurations cover head_size 128, block_size 16 and
@@ -137,7 +137,7 @@ class PoisonedPageTest(parameterized.TestCase):
     return handle
 
   def _shape(self, num_requests, num_tokens, num_pages, is_decode=True):
-    from jax_vllm_gpu.kv.execution.bucketing import StepShape  # pylint: disable=import-outside-toplevel
+    from vllm_xla_gpu.kv.execution.bucketing import StepShape  # pylint: disable=import-outside-toplevel
 
     return StepShape(
         num_requests=num_requests,
@@ -281,7 +281,7 @@ class _TracingStep:
              kv_last_page_lens, cu_seqlens_q, *, max_seqlen_q, max_seqlen_k, is_decode):
       self.traces += 1
       # pylint: disable=import-outside-toplevel
-      from jax_vllm_gpu.ops.paged_attention import PagedPlan, paged_attention_step
+      from vllm_xla_gpu.ops.paged_attention import PagedPlan, paged_attention_step
 
       plan = PagedPlan(
           slot_mapping=slot_mapping,

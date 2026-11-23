@@ -84,7 +84,7 @@ jobs:
           sha256sum --check "$RUNNER_TEMP/cpu-wheels.sha256"
       - name: Check out MaxText and vLLM at their pins
         env:
-          JAX_VLLM_GPU_ROOT: ${{ runner.temp }}
+          VXG_ROOT: ${{ runner.temp }}
         run: scripts/setup_sources.sh
       - name: Install
         env:
@@ -140,7 +140,7 @@ jobs:
           sha256sum --check .github/ci-wheels.sha256
       - name: Check out MaxText and vLLM at their pins
         env:
-          JAX_VLLM_GPU_ROOT: ${{ runner.temp }}
+          VXG_ROOT: ${{ runner.temp }}
         run: scripts/setup_sources.sh
       - name: Install
         # --system-site-packages: the container's ROCm is a set of Python packages.
@@ -162,4 +162,4 @@ jobs:
           export LD_LIBRARY_PATH="$root/lib:$root/lib/rocm_sysdeps/lib"
           export JA_ROOT_DIR="$GITHUB_WORKSPACE/third_party/jax-aiter"
           export PYTHONPATH="$JA_ROOT_DIR"
-          DECOUPLE_GCLOUD=TRUE JAX_VLLM_REQUIRE_GPU=1 venv/bin/python -m pytest tests/ -rs
+          DECOUPLE_GCLOUD=TRUE VXG_REQUIRE_GPU=1 venv/bin/python -m pytest tests/ -rs

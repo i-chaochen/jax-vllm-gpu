@@ -26,8 +26,8 @@ import unittest
 
 import numpy as np
 
-from jax_vllm_gpu.kv.common import KvStorageLayoutV1
-from jax_vllm_gpu.kv.control import (
+from vllm_xla_gpu.kv.common import KvStorageLayoutV1
+from vllm_xla_gpu.kv.control import (
     NativeKvControlPlane,
     NotResidentError,
     PageResidency,

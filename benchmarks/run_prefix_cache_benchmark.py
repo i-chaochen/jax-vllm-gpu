@@ -58,9 +58,9 @@ from flax.linen import partitioning as nn_partitioning
 
 from maxtext.common.common_types import MODEL_MODE_PREFILL
 from maxtext.configs import pyconfig
-from jax_vllm_gpu.engine.config import PagedConfig
-from jax_vllm_gpu.kv.common import CacheNamespace
-from jax_vllm_gpu.kv.execution import benchmark
+from vllm_xla_gpu.engine.config import PagedConfig
+from vllm_xla_gpu.kv.common import CacheNamespace
+from vllm_xla_gpu.kv.execution import benchmark
 from maxtext.utils import maxtext_utils, model_creation_utils
 from maxtext.utils.globals import MAXTEXT_CONFIGS_DIR
 
@@ -127,7 +127,7 @@ def serve(engine, params, requests, *, max_batch: int, measure: bool):
   reads them off `PagedRequest`.
   """
   # pylint: disable=import-outside-toplevel
-  from jax_vllm_gpu.kv.execution.driver import PagedDriver
+  from vllm_xla_gpu.kv.execution.driver import PagedDriver
 
   runtime = engine.paged_runtime
   trace = list(requests)
@@ -167,7 +167,7 @@ def serve(engine, params, requests, *, max_batch: int, measure: bool):
 
 def run_arm(args, devices, prefix_cache: bool):
   # pylint: disable=import-outside-toplevel
-  from jax_vllm_gpu.engine.paged_engine import PagedEngine
+  from vllm_xla_gpu.engine.paged_engine import PagedEngine
 
   cfg = build_config(args, prefix_cache)
   engine = PagedEngine(cfg, devices, paged=build_pool(args, prefix_cache))

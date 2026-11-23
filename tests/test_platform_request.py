@@ -9,7 +9,7 @@ import pytest
 
 vllm = pytest.importorskip("vllm", reason="vLLM is supplied by the runtime image")
 
-from jax_vllm_gpu.plugin.platform import JaxPlatform
+from vllm_xla_gpu.plugin.platform import JaxPlatform
 
 
 def test_temperature_top_p_and_top_k_are_supported():

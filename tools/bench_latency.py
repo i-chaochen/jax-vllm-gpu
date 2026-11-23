@@ -13,7 +13,7 @@ dividing by N-1 assumes every step in the window costs the same. On this platfor
 one unseen shape costs seconds, so a single compile is smeared across the whole
 window -- which produced a table where throughput *fell* from batch 4 to batch 8
 while step time rose 2.5x. That cannot be true: every batch size reads the same
-weights per step, so step time should be near flat. `jax_vllm_gpu.plugin.metrics`
+weights per step, so step time should be near flat. `vllm_xla_gpu.plugin.metrics`
 therefore records each step where it happens and reports a median over the steps
 that did not compile.
 
@@ -93,7 +93,7 @@ def main() -> int:
 
   from vllm import LLM
 
-  from jax_vllm_gpu.plugin.metrics import STEPS
+  from vllm_xla_gpu.plugin.metrics import STEPS
 
   started = time.perf_counter()
   llm = LLM(

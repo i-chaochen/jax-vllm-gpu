@@ -12,8 +12,8 @@ import numpy as np
 import pytest
 
 
-from jax_vllm_gpu.plugin.kv_reuse import DirtyPageError, PageReuseTracker
-from jax_vllm_gpu.plugin.page_table import RequestPages
+from vllm_xla_gpu.plugin.kv_reuse import DirtyPageError, PageReuseTracker
+from vllm_xla_gpu.plugin.page_table import RequestPages
 
 PAGE = 16
 POOL = 64

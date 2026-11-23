@@ -28,9 +28,9 @@ import numpy as np
 import jax.numpy as jnp
 
 from maxtext.configs import pyconfig
-from jax_vllm_gpu.engine.config import PagedConfig
-from jax_vllm_gpu.kv.common import KvPageTableV1
-from jax_vllm_gpu.ops import paged_attention as gpa
+from vllm_xla_gpu.engine.config import PagedConfig
+from vllm_xla_gpu.kv.common import KvPageTableV1
+from vllm_xla_gpu.ops import paged_attention as gpa
 from maxtext_test_config import get_test_config_path
 
 TOKENS_PER_PAGE = 16

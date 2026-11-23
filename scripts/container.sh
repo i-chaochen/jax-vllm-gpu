@@ -5,10 +5,10 @@
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-NAME=${NAME:-${USER}_therock-10.1_jax_vllm_gpu}
+NAME=${NAME:-${USER}_therock-10.1_vllm_xla_gpu}
 IMAGE=${IMAGE:-ghcr.io/rocm/jax-base-ubu24.therock-10.1@sha256:9abb85fde7485b89db61f87d5f583bb1c3b980d479fff7d6d7ed988d652c57b3}
 # The repository's parent holds the sibling checkouts (vllm, jax-titan) and
-# .jax_vllm_gpu. DATA holds checkpoints and build trees; both are mounted at the
+# .vllm_xla_gpu. DATA holds checkpoints and build trees; both are mounted at the
 # same path, so paths read the same inside and out.
 WORKSPACE=${WORKSPACE:-$(dirname "${REPO}")}
 DATA=${DATA:-/data}

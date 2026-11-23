@@ -32,14 +32,14 @@ import pytest
 import jax
 import jax.numpy as jnp
 
-from jax_vllm_gpu.kv.common import KvStorageLayoutV1
-from jax_vllm_gpu.kv.execution.page_staging import (
+from vllm_xla_gpu.kv.common import KvStorageLayoutV1
+from vllm_xla_gpu.kv.execution.page_staging import (
     HOST_MEMORY_KIND,
     offload_pages,
     pad_page_indices,
     reload_pages,
 )
-from jax_vllm_gpu.kv.execution.pool_factory import allocate_pool
+from vllm_xla_gpu.kv.execution.pool_factory import allocate_pool
 
 PAGE = 8
 PAGES = 16

@@ -2,16 +2,16 @@
 
 JAX inference on GPUs, served through vLLM, built AMD-native first.
 
-vLLM-XLA-GPU, formerly jax-vllm-gpu, runs MaxText models on AMD Instinct GPUs
-with a paged KV cache. KV lives in donated `jax.Array` page pools, and AITER's
-paged kernels, reached through JAX-AITER's XLA FFI, append to them and attend
-over them. The same runtime serves models two ways:
+vLLM-XLA-GPU runs MaxText models on AMD Instinct GPUs with a paged KV cache.
+KV lives in donated `jax.Array` page pools, and AITER's paged kernels, reached
+through JAX-AITER's XLA FFI, append to them and attend over them. The same
+runtime serves models two ways:
 
 - through **vLLM**, as an out-of-tree platform plugin. vLLM supplies the
   OpenAI-compatible endpoint, the scheduler and the block manager; this package
   supplies the platform, the worker, the model runner and the KV pool.
-- through a **native offline engine** with its own page allocator, prefix cache
-  and continuous-batching driver, and no vLLM in the process.
+- through a **standalone offline engine** with its own page allocator, prefix
+  cache and continuous-batching driver, and no vLLM in the process.
 
 > **Status:** early development. APIs will change.
 
@@ -22,10 +22,10 @@ over them. The same runtime serves models two ways:
 - vLLM's chunked prefill, preemption with recompute and prefix caching, each
   driven by vLLM's own scheduler (`tools/smoke_engine.py`). Greedy output is
   the same whatever the token budget.
-- The native engine: every paged-decode token is the argmax of a full forward
-  pass, as the dense path's are, with near-ties judged at bf16 resolution.
-  Batched prefill, prefix sharing that reproduces a cold run token for token, and
-  a host tier that pages KV out and back.
+- The standalone engine: every paged-decode token is the argmax of a full
+  forward pass, as the dense path's are, with near-ties judged at bf16
+  resolution. Batched prefill, prefix sharing that reproduces a cold run token
+  for token, and a host tier that pages KV out and back.
 - Pages another request wrote are scrubbed before reuse, tested against vLLM's
   block lifecycle with a negative control.
 
@@ -62,35 +62,28 @@ tpu-inference's last-known-good, recorded in `vllm_lkg.version`.
 
 | what | value |
 |---|---|
-| repository | `vllm-xla-gpu` |
-| distribution | `jax-vllm-gpu` |
-| import package | `jax_vllm_gpu` |
-| platform entry point | `jax_vllm_gpu` |
-| connector entry point | `jax_vllm_gpu_kv_connector` |
+| repository and distribution | `vllm-xla-gpu` |
+| import package | `vllm_xla_gpu` |
+| platform entry point | `vllm_xla_gpu` |
+| connector entry point | `vllm_xla_gpu_kv_connector` |
 
 The entry point names are what `VLLM_PLUGINS` allowlists, and the platform one
-appears in vLLM's `Platform plugin jax_vllm_gpu is activated` log line.
-
-The repository was renamed from `jax-vllm-gpu`, and the old URL redirects. The
-distribution, the import package, the entry points and the `JAX_VLLM_*`
-variables keep the old name for now, so installs and allowlists keep working.
-They take the name `vllm_xla_gpu`, with the old names kept as aliases, once
-the native XLA executor in the roadmap is in place.
+appears in vLLM's `Platform plugin vllm_xla_gpu is activated` log line.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
-| `src/jax_vllm_gpu/kv/common` | Neutral vocabulary: page table, storage layout and cache namespace. Standard library and numpy only |
-| `src/jax_vllm_gpu/kv/control` | The native engine's page allocator, page map, prefix index and residency. Standard library, numpy and `kv/common` only |
-| `src/jax_vllm_gpu/kv/execution` | The device side: pool allocation and sharding, step views and inputs, shape buckets, the continuous-batching driver, page staging and the host tier |
-| `src/jax_vllm_gpu/ops` | Paged attention and KV append through JAX-AITER, under `shard_map` for tensor parallelism |
-| `src/jax_vllm_gpu/models/adapters` | MaxText: the attention hook and the vLLM model |
-| `src/jax_vllm_gpu/engine` | The native offline engine (`PagedEngine`, `PagedInferenceWorker`), its pool settings (`PagedConfig`) and a torch-free tokenizer |
-| `src/jax_vllm_gpu/plugin` | The vLLM platform plugin: platform, worker, model runner, step pipeline, KV spec and pool, page-table translation, recycled-page tracking and connector registration |
+| `src/vllm_xla_gpu/kv/common` | Neutral vocabulary: page table, storage layout and cache namespace. Standard library and numpy only |
+| `src/vllm_xla_gpu/kv/control` | The standalone engine's page allocator, page map, prefix index and residency. Standard library, numpy and `kv/common` only |
+| `src/vllm_xla_gpu/kv/execution` | The device side: pool allocation and sharding, step views and inputs, shape buckets, the continuous-batching driver, page staging and the host tier |
+| `src/vllm_xla_gpu/ops` | Paged attention and KV append through JAX-AITER, under `shard_map` for tensor parallelism |
+| `src/vllm_xla_gpu/models/adapters` | MaxText: the attention hook and the vLLM model |
+| `src/vllm_xla_gpu/engine` | The standalone offline engine (`PagedEngine`, `PagedInferenceWorker`), its pool settings (`PagedConfig`) and a torch-free tokenizer |
+| `src/vllm_xla_gpu/plugin` | The vLLM platform plugin: platform, worker, model runner, step pipeline, KV spec and pool, page-table translation, recycled-page tracking and connector registration |
 | `tests/` | CPU and GPU tests. `gpu_only` tests skip when JAX sees no GPU |
 | `tools/` | Smoke runs through vLLM's real engine, and the latency benchmark |
-| `benchmarks/` | Native-engine serving and prefix-cache benchmarks |
+| `benchmarks/` | Standalone-engine serving and prefix-cache benchmarks |
 | `third_party/` | JAX-AITER as a submodule at jax-titan's pin, and the patches carried for MaxText and JAX-AITER |
 | `scripts/` | The container, the source trees, the Python environment, the JAX-AITER build and `env.sh` |
 | `vllm_lkg.version` | The vLLM commit |
@@ -104,10 +97,16 @@ the tests and the smoke runs.
 
 | variable | effect |
 |---|---|
-| `VLLM_JAX_PLATFORM` | `1` forces the plugin on, `0` forces it off. vLLM swallows exceptions from platform probes, so a probe failure otherwise looks like the wheel being absent. |
-| `JAX_VLLM_ROCTX` | `1` opens one ROCTX range per serving step, from dispatch until the sampled tokens reach the host, labelled with the step's shape, for lining up steps with GPU work in rocprofv3. Fails at startup if `librocprofiler-sdk-roctx` is missing. |
+| `VXG_PLATFORM` | `1` forces the plugin on, `0` forces it off. vLLM swallows exceptions from platform probes, so a probe failure otherwise looks like the wheel being absent. |
+| `VXG_ROCTX` | `1` opens one ROCTX range per serving step, from dispatch until the sampled tokens reach the host, labelled with the step's shape, for lining up steps with GPU work in rocprofv3. Fails at startup if `librocprofiler-sdk-roctx` is missing. |
 | `VLLM_PLUGINS` | Allowlist of entry point names. Needed when another JAX platform plugin is installed beside this one, since vLLM refuses to activate two. |
 | `VLLM_TARGET_DEVICE` | **Hazard.** `cpu` makes vLLM return its CPU platform before loading any plugin, so this one is never probed. Keep it unset. |
+
+This project's own variables start with `VXG_`, not `VLLM_`: vLLM warns about
+every `VLLM_*` variable it does not define, and rejects them when
+`fail_on_environ_validation` is set. The scripts use `VXG_ROOT` for the
+directory that holds the source trees and the venv, and the tests use
+`VXG_REQUIRE_GPU`.
 
 ## Roadmap
 

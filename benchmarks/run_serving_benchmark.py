@@ -42,8 +42,8 @@ from flax.linen import partitioning as nn_partitioning
 
 from maxtext.common.common_types import MODEL_MODE_PREFILL
 from maxtext.configs import pyconfig
-from jax_vllm_gpu.engine.config import PagedConfig
-from jax_vllm_gpu.kv.execution import benchmark
+from vllm_xla_gpu.engine.config import PagedConfig
+from vllm_xla_gpu.kv.execution import benchmark
 from maxtext.utils import maxtext_utils, model_creation_utils
 from maxtext.utils.globals import MAXTEXT_CONFIGS_DIR
 
@@ -184,7 +184,7 @@ def main() -> int:
   args = parser.parse_args()
 
   # pylint: disable=import-outside-toplevel
-  from jax_vllm_gpu.engine.paged_engine import PagedEngine
+  from vllm_xla_gpu.engine.paged_engine import PagedEngine
 
   devices = jax.devices()[:1]
   print(f"device: {devices[0].device_kind}  ({len(jax.devices())} visible, using 1)")

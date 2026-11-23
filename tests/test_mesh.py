@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from jax_vllm_gpu.plugin import mesh as mesh_module
+from vllm_xla_gpu.plugin import mesh as mesh_module
 
 jax = pytest.importorskip("jax", reason="the mesh is a JAX object")
 
@@ -79,7 +79,7 @@ def test_fewer_heads_than_shards_is_allowed_but_says_so(caplog):
         pytest.skip("needs at least four devices")
     mesh = mesh_module.build_mesh(4, devices=devices[:4])
 
-    with caplog.at_level("WARNING", logger="jax_vllm_gpu.plugin.mesh"):
+    with caplog.at_level("WARNING", logger="vllm_xla_gpu.plugin.mesh"):
         mesh_module.assert_kv_heads_shardable(mesh, num_kv_heads=2)
 
     assert "replicated 2 times" in caplog.text

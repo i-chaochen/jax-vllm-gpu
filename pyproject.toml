@@ -3,7 +3,7 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "jax-vllm-gpu"
+name = "vllm-xla-gpu"
 version = "0.0.1.dev0"
 description = "JAX inference on AMD GPUs, served through vLLM"
 readme = "README.md"
@@ -49,10 +49,10 @@ maxtext = [
 # The left-hand names are what VLLM_PLUGINS allowlists and what appears in
 # vLLM's "Platform plugin <name> is activated" log line.
 [project.entry-points."vllm.platform_plugins"]
-jax_vllm_gpu = "jax_vllm_gpu.plugin.platform:register"
+vllm_xla_gpu = "vllm_xla_gpu.plugin.platform:register"
 
 [project.entry-points."vllm.general_plugins"]
-jax_vllm_gpu_kv_connector = "jax_vllm_gpu.plugin.connector:register"
+vllm_xla_gpu_kv_connector = "vllm_xla_gpu.plugin.connector:register"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -20,13 +20,13 @@ from pathlib import Path
 
 import pytest
 
-import jax_vllm_gpu.plugin
+import vllm_xla_gpu.plugin
 
-# The page-ownership half of the native control plane. `kv_execution` is
+# The page-ownership half of the standalone control plane. `kv_execution` is
 # deliberately not here: its pool factory, bucketing, step view and pool ops are
 # frontend-agnostic and this platform is a legitimate user of all of them. It is
 # specifically the allocator and the prefix index that vLLM replaces.
-FORBIDDEN_ROOT = "jax_vllm_gpu.kv.control"
+FORBIDDEN_ROOT = "vllm_xla_gpu.kv.control"
 
 
 def plugin_modules():
@@ -36,7 +36,7 @@ def plugin_modules():
     `__init__.py` -- and a rule about what may not be imported is worth nothing
     if it does not cover every file that can import.
     """
-    root = Path(jax_vllm_gpu.plugin.__file__).parent
+    root = Path(vllm_xla_gpu.plugin.__file__).parent
     return sorted(root.rglob("*.py"))
 
 
@@ -68,7 +68,7 @@ def test_no_plugin_module_reaches_maxtexts_own_allocator(path):
 
     assert not offending, (
         f"{path.name} imports {offending}. Under EXTERNAL_VLLM vLLM's "
-        "KVCacheManager is the sole page owner; the native allocator and prefix "
+        "KVCacheManager is the sole page owner; the standalone allocator and prefix "
         "index are bypassed, not merely unused."
     )
 
@@ -82,7 +82,7 @@ def test_the_scan_actually_sees_imports():
     """
     seen = {name for path in plugin_modules() for name in imported_names(path)}
 
-    assert any(name.startswith("jax_vllm_gpu.kv.execution") for name in seen)
+    assert any(name.startswith("vllm_xla_gpu.kv.execution") for name in seen)
 
 
 def test_the_scrub_contract_still_has_an_answerer():
@@ -94,9 +94,9 @@ def test_the_scrub_contract_still_has_an_answerer():
     Bypassing the allocator therefore has to leave those two questions answered
     by something, and here it is `PageReuseTracker`.
     """
-    from jax_vllm_gpu.kv.control.protocols import KvControlPlane
+    from vllm_xla_gpu.kv.control.protocols import KvControlPlane
 
-    from jax_vllm_gpu.plugin.kv_reuse import PageReuseTracker
+    from vllm_xla_gpu.plugin.kv_reuse import PageReuseTracker
 
     scrub_contract = ("pending_scrub", "confirm_scrubbed")
     for name in scrub_contract:

@@ -2,17 +2,17 @@
 
 vLLM-XLA-GPU runs in the TheRock ROCm container jax-titan uses, on jax-titan's
 JAX build, with a CPU-only torch and vLLM built with no kernels of its own. The
-source trees, the venv and the compilation cache live in `JAX_VLLM_GPU_ROOT`,
-which defaults to `.jax_vllm_gpu` next to this repository.
+source trees, the venv and the compilation cache live in `VXG_ROOT`,
+which defaults to `.vllm_xla_gpu` next to this repository.
 
 ## 1. Container
 
 On the host:
 
 ```bash
-scripts/container.sh     # starts ${USER}_therock-10.1_jax_vllm_gpu from
+scripts/container.sh     # starts ${USER}_therock-10.1_vllm_xla_gpu from
                          # ghcr.io/rocm/jax-base-ubu24.therock-10.1, at jax-titan's CI digest
-docker exec -it -u ${USER} ${USER}_therock-10.1_jax_vllm_gpu bash
+docker exec -it -u ${USER} ${USER}_therock-10.1_vllm_xla_gpu bash
 ```
 
 The container mounts the repository's parent directory and `/data` at their
@@ -73,7 +73,7 @@ with their checksums.
 ## 4. Python environment
 
 ```bash
-R=../.jax_vllm_gpu
+R=../.vllm_xla_gpu
 python3 -m venv --system-site-packages $R/venv
 source $R/venv/bin/activate
 WHEELS=<the four wheels> VLLM_SRC=$R/src/vllm MAXTEXT_SRC=$R/src/maxtext \
@@ -97,9 +97,9 @@ Run one GPU invocation at a time, and from the host wrap each in `timeout`: a
 JAX_PLATFORMS=cpu DECOUPLE_GCLOUD=TRUE python -m pytest tests -q
 
 # GPU: everything, including the KV kernels and the engine parity tests.
-# 470 passed, 1 skipped on 8x MI325X. JAX_VLLM_REQUIRE_GPU=1 fails the run if
+# 470 passed, 1 skipped on 8x MI325X. VXG_REQUIRE_GPU=1 fails the run if
 # JAX falls back to the CPU, instead of skipping every GPU test.
-DECOUPLE_GCLOUD=TRUE JAX_VLLM_REQUIRE_GPU=1 python -m pytest tests -q
+DECOUPLE_GCLOUD=TRUE VXG_REQUIRE_GPU=1 python -m pytest tests -q
 
 # The skipped one compares against MaxText's dense path, which needs exactly
 # the engine's device visible. 11 passed, with the attention-layer tests.
@@ -193,8 +193,8 @@ window, against the previous stack (ROCm 7.2, jax 0.10.2, MaxText
 Two things this stack does differently cost 14 to 24% per step until fixed:
 - jax 0.12.1's XLA all-gathers the vocab-sharded embedding table, 2.1 GB, to
   look up one decode token. The platform sets MaxText's `use_iota_embed`,
-  whose one-hot lookup partitions locally. A native-engine caller at TP above
-  1 should set it too.
+  whose one-hot lookup partitions locally. A standalone-engine caller at TP
+  above 1 should set it too.
 - JAX-AITER's KV append widened int32 slots into a buffer from
   `hipMallocAsync`, which blocks the host until the stream drains, once per
   layer. The widening worked around an AITER pin that read slots as int64;
