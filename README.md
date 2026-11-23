@@ -58,7 +58,7 @@ No file in vLLM's tree changes. vLLM finds platforms through
 `importlib.metadata.entry_points(group="vllm.platform_plugins")`, so installing
 this wheel is the whole integration step, and out-of-tree plugins take
 precedence over vLLM's built-in ROCm platform. The supported vLLM commit is
-tpu-inference's last-known-good, recorded in `vllm_lkg.version`.
+tpu-inference's last-known-good, recorded in `third_party/pins.env`.
 
 | what | value |
 |---|---|
@@ -85,9 +85,8 @@ appears in vLLM's `Platform plugin vllm_xla_gpu is activated` log line.
 | `tests/` | CPU and GPU tests. `gpu_only` tests skip when JAX sees no GPU |
 | `tools/` | Smoke runs through vLLM's real engine and worker |
 | `benchmarks/` | `vllm_latency.py`: TTFT and per-step latency through vLLM's engine. `standalone_*.py`: the standalone engine's serving and prefix-cache benchmarks, with their harness |
-| `third_party/` | JAX-AITER as a submodule at jax-titan's pin, and the patches carried for MaxText and JAX-AITER |
+| `third_party/` | JAX-AITER as a submodule at jax-titan's pin, the patches carried for MaxText and JAX-AITER, and `pins.env`, the vLLM and MaxText revisions |
 | `scripts/` | The container, the source trees, the Python environment, the JAX-AITER build and `env.sh` |
-| `vllm_lkg.version` | The vLLM commit |
 | `.github/` | CI, with the pinned wheels and package versions it installs |
 | `.cursor/skills/`, `.claude/skills/` | Agent skill (identical copies): architecture rules and test discipline |
 

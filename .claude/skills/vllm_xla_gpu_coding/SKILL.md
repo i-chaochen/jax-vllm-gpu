@@ -77,7 +77,7 @@ patched either: the plugin is found through the `vllm.platform_plugins` and
 
 - `execute_model` returns None and `sample_tokens` returns the
   `ModelRunnerOutput`; vLLM's two engine paths accept only this split.
-- vLLM is pinned to `vllm_lkg.version`. A preempted request is named in
+- vLLM is pinned in `third_party/pins.env`. A preempted request is named in
   `preempted_req_ids` and comes back as a new request whose
   `prefill_token_ids` replays what it had generated: retire it with the
   finished ones before admitting, and emit nothing until the replay is done.

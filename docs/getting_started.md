@@ -26,10 +26,11 @@ git submodule update --init --recursive third_party/jax-aiter   # with AITER
 scripts/setup_sources.sh
 ```
 
-`setup_sources.sh` makes the MaxText tree at `maxtext-v0.2.5` and applies
+`setup_sources.sh` reads the revisions in `third_party/pins.env`. It makes the
+MaxText tree at `maxtext-v0.2.5` and applies
 `third_party/patches/maxtext-gpu-paged-hook.patch`, and makes the vLLM tree at
-`vllm_lkg.version`. Each is a worktree of the sibling checkout (`../maxtext`,
-`../vllm`) when there is one, and a clone otherwise.
+tpu-inference's last-known-good. Each is a worktree of the sibling checkout
+(`../maxtext`, `../vllm`) when there is one, and a clone otherwise.
 
 The tested set, 2026-11-19:
 
@@ -40,7 +41,7 @@ The tested set, 2026-11-19:
 | jax-rocm10-plugin, jax-rocm10-pjrt | the same build, for gfx942 |
 | MaxText | `maxtext-v0.2.5` (`493d59281`) with the hook patch |
 | JAX-AITER | `third_party/jax-aiter` at `c290cdd`, jax-titan's pin, with `third_party/patches/jax-aiter-int32-slots.patch` |
-| vLLM | `5ec99956ad` (`vllm_lkg.version`, tpu-inference's last-known-good), built with `VLLM_TARGET_DEVICE=empty` |
+| vLLM | `5ec99956ad` (`third_party/pins.env`, tpu-inference's last-known-good), built with `VLLM_TARGET_DEVICE=empty` |
 | torch | 2.14.0, CPU build |
 | Everything else | `.github/ci-constraints.txt` |
 
