@@ -92,8 +92,8 @@ patched either: the plugin is found through the `vllm.platform_plugins` and
 
 ## Coding Standards
 
-- Match the file you are in: 2-space indentation in `kv/`, `ops/`, `engine/`
-  and `models/` (MaxText style), 4-space in `plugin/` and its tests.
+- Match the file you are in: 2-space indentation in `kv/`, `host/`, `ops/`,
+  `engine/` and `models/` (MaxText style), 4-space in `plugin/` and its tests.
 - Comments state constraints the code cannot show. Commit messages carry the
   history.
 - Keep license headers. Code derived from MaxText keeps Google's header with
