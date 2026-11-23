@@ -117,7 +117,7 @@ class PagedEngine(maxengine.MaxEngine):
     # pylint: disable=import-outside-toplevel
     from vllm_xla_gpu.kv.control import NativeKvControlPlane
     from vllm_xla_gpu.host.shapes import StepShapePlanner
-    from vllm_xla_gpu.kv.execution.engine_adapter import PagedRuntime
+    from vllm_xla_gpu.engine.runtime import PagedRuntime
     from vllm_xla_gpu.kv.execution.pool_factory import allocate_pool
 
     if self.paged is None:

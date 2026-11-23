@@ -50,7 +50,7 @@ from maxtext.utils import max_logging
 
 from vllm_xla_gpu.engine.config import PagedConfig
 from vllm_xla_gpu.engine.paged_engine import PagedEngine
-from vllm_xla_gpu.kv.execution.driver import PagedDriver, PagedRequest
+from vllm_xla_gpu.engine.driver import PagedDriver, PagedRequest
 
 
 # MaxText's `offline_engine` defines both records with these fields, and cannot

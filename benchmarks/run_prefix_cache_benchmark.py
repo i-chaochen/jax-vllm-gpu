@@ -127,7 +127,7 @@ def serve(engine, params, requests, *, max_batch: int, measure: bool):
   reads them off `PagedRequest`.
   """
   # pylint: disable=import-outside-toplevel
-  from vllm_xla_gpu.kv.execution.driver import PagedDriver
+  from vllm_xla_gpu.engine.driver import PagedDriver
 
   runtime = engine.paged_runtime
   trace = list(requests)

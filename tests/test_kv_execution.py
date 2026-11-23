@@ -31,7 +31,8 @@ import numpy as np
 
 from vllm_xla_gpu.kv.common import CacheNamespace, KvPageTableV1, KvStorageLayoutV1
 from vllm_xla_gpu.kv.control import NativeKvControlPlane, RequestHandle
-from vllm_xla_gpu.kv.execution import allocate_pool, PagedDriver, PagedRequest
+from vllm_xla_gpu.engine.driver import PagedDriver, PagedRequest
+from vllm_xla_gpu.kv.execution import allocate_pool
 from vllm_xla_gpu.host.shapes import (
     StepShape,
     StepShapePlanner,
@@ -40,7 +41,7 @@ from vllm_xla_gpu.host.shapes import (
     seqlen_ladder,
     token_ladder,
 )
-from vllm_xla_gpu.kv.execution.engine_adapter import PagedRuntime
+from vllm_xla_gpu.engine.runtime import PagedRuntime
 from vllm_xla_gpu.kv.execution.layout_builder import build_storage_layout, kv_head_shards
 from vllm_xla_gpu.kv.execution.pool_ops import (
     POISON_SENTINEL,

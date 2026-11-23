@@ -409,7 +409,7 @@ class GpuPagedDecodeParityTest(parameterized.TestCase):
     impossible -- so it is worth checking rather than assuming.
     """
     # pylint: disable=import-outside-toplevel
-    from vllm_xla_gpu.kv.execution.driver import PagedDriver, PagedRequest
+    from vllm_xla_gpu.engine.driver import PagedDriver, PagedRequest
 
     cfg = _config(**_PAGED)
     params_state = self._build_params(cfg)

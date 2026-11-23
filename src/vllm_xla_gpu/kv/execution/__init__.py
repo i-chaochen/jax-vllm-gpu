@@ -26,9 +26,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from vllm_xla_gpu.kv.execution.driver import PagedDriver, PagedRequest, StepOutcome
 from vllm_xla_gpu.kv.execution.layout_builder import build_storage_layout
-from vllm_xla_gpu.kv.execution.offload_tier import HostOffloadTier, TierCapacityError
 from vllm_xla_gpu.kv.execution.page_staging import (
     StagedPages,
     offload_pages,
@@ -46,14 +44,9 @@ from vllm_xla_gpu.kv.execution.step_view import StepView, build_step_view
 
 __all__ = [
     "POISON_SENTINEL",
-    "HostOffloadTier",
-    "PagedDriver",
     "PagedKvPool",
-    "PagedRequest",
     "StagedPages",
-    "StepOutcome",
     "StepView",
-    "TierCapacityError",
     "allocate_pool",
     "build_step_view",
     "build_storage_layout",

@@ -54,8 +54,8 @@ def test_no_file_imports_a_runtime_module_maxtext_still_ships():
 
     assert not offending, (
         f"{offending} import MaxText's copy of a module this repository owns; import it from "
-        "vllm_xla_gpu instead (kv.common, kv.control, kv.execution, engine.tokenizer, "
-        "engine.offline, ops.paged_attention)"
+        "vllm_xla_gpu instead (kv.common, kv.control, kv.execution, host, engine, "
+        "ops.paged_attention)"
     )
 
 

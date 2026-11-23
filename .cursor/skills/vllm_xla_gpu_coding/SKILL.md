@@ -29,8 +29,8 @@ patched either: the plugin is found through the `vllm.platform_plugins` and
   jax_aiter, maxtext or vllm in `kv/common`, `kv/control` or `host`.
 - **One page owner per mode:** the standalone engine owns pages through
   `kv/control`'s allocator and prefix index. Under the vLLM plugin, vLLM's
-  `KVCacheManager` owns them, and `plugin/` never imports `kv/control`
-  (`tests/test_ownership_mode.py`).
+  `KVCacheManager` owns them, and `plugin/` never imports `kv/control` or
+  `engine/` (`tests/test_ownership_mode.py`).
 - **Attention hook:** MaxText dispatches `attention="gpu_paged"` to
   `Attention.forward_serve_gpu_paged`, which
   `third_party/patches/maxtext-gpu-paged-hook.patch` adds to the pinned
